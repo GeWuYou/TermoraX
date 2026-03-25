@@ -1,5 +1,6 @@
 import { WorkspaceShell } from "../features/workspace/components/WorkspaceShell";
 import { useWorkspaceApp } from "./useWorkspaceApp";
+import { t } from "../shared/i18n";
 
 function App() {
   const controller = useWorkspaceApp();
@@ -7,8 +8,8 @@ function App() {
   if (controller.state.isLoading) {
     return (
       <div className="boot-screen">
-        <p className="boot-screen__eyebrow">TermoraX</p>
-        <h1>Preparing workspace state…</h1>
+        <p className="boot-screen__eyebrow">{t("app.name")}</p>
+        <h1>{t("app.boot")}</h1>
       </div>
     );
   }

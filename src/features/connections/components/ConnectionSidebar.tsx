@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ConnectionAuthType, ConnectionProfile } from "../../../entities/domain";
 import type { WorkspaceController } from "../../../app/useWorkspaceApp";
 import { Panel } from "../../../shared/components/Panel";
+import { t } from "../../../shared/i18n";
 
 interface ConnectionSidebarProps {
   controller: WorkspaceController;
@@ -12,7 +13,7 @@ const emptyDraft = {
   host: "",
   port: "22",
   username: "",
-  group: "General",
+  group: "默认分组",
   authType: "password" as ConnectionAuthType,
   note: "",
   tags: "",
@@ -39,11 +40,11 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
   return (
     <div className="sidebar-stack">
       <Panel
-        title="Connections"
-        subtitle={`${state.connections.length} profiles`}
+        title={t("connections.title")}
+        subtitle={t("connections.subtitle", { count: state.connections.length })}
         actions={
           <button className="ghost-button" onClick={() => setDraft(emptyDraft)} type="button">
-            New
+            {t("connections.new")}
           </button>
         }
       >
@@ -66,8 +67,12 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
       </Panel>
 
       <Panel
-        title="Editor"
-        subtitle={selectedConnection ? `Editing ${selectedConnection.name}` : "Create a new SSH target"}
+        title={t("connections.editorTitle")}
+        subtitle={
+          selectedConnection
+            ? t("connections.editorEditing", { name: selectedConnection.name })
+            : t("connections.editorCreate")
+        }
         actions={
           selectedConnection ? (
             <button
@@ -75,7 +80,7 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
               onClick={() => void controller.deleteConnectionProfile(selectedConnection.id)}
               type="button"
             >
-              Delete
+              {t("connections.delete")}
             </button>
           ) : null
         }
@@ -102,15 +107,15 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
           }}
         >
           <label>
-            <span>Name</span>
+            <span>{t("connections.field.name")}</span>
             <input
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              placeholder="prod-app-01"
+              placeholder="生产应用-01"
               value={draft.name}
             />
           </label>
           <label>
-            <span>Host</span>
+            <span>{t("connections.field.host")}</span>
             <input
               onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))}
               placeholder="10.10.0.12"
@@ -119,7 +124,7 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
           </label>
           <div className="form-grid">
             <label>
-              <span>Port</span>
+              <span>{t("connections.field.port")}</span>
               <input
                 onChange={(event) => setDraft((current) => ({ ...current, port: event.target.value }))}
                 placeholder="22"
@@ -127,7 +132,7 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
               />
             </label>
             <label>
-              <span>User</span>
+              <span>{t("connections.field.user")}</span>
               <input
                 onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))}
                 placeholder="deploy"
@@ -137,28 +142,28 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
           </div>
           <div className="form-grid">
             <label>
-              <span>Group</span>
+              <span>{t("connections.field.group")}</span>
               <input
                 onChange={(event) => setDraft((current) => ({ ...current, group: event.target.value }))}
-                placeholder="Production"
+                placeholder="生产环境"
                 value={draft.group}
               />
             </label>
             <label>
-              <span>Auth</span>
+              <span>{t("connections.field.auth")}</span>
               <select
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, authType: event.target.value as ConnectionAuthType }))
                 }
                 value={draft.authType}
               >
-                <option value="password">Password</option>
-                <option value="privateKey">Private Key</option>
+                <option value="password">{t("connections.auth.password")}</option>
+                <option value="privateKey">{t("connections.auth.privateKey")}</option>
               </select>
             </label>
           </div>
           <label>
-            <span>Tags</span>
+            <span>{t("connections.field.tags")}</span>
             <input
               onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))}
               placeholder="api, cn-sha"
@@ -166,7 +171,7 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
             />
           </label>
           <label>
-            <span>Note</span>
+            <span>{t("connections.field.note")}</span>
             <textarea
               onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))}
               placeholder="用途、网络说明、注意事项"
@@ -176,7 +181,7 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
           </label>
           <div className="button-row">
             <button className="primary-button" type="submit">
-              Save Profile
+              {t("connections.save")}
             </button>
             {selectedConnection ? (
               <button
@@ -184,7 +189,7 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
                 onClick={() => void controller.openSession(selectedConnection.id)}
                 type="button"
               >
-                Open Session
+                {t("connections.openSession")}
               </button>
             ) : null}
           </div>

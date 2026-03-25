@@ -4,6 +4,7 @@
 - This repository is building `TermoraX`, a desktop SSH/SFTP workspace inspired by the problem space of FinalShell.
 - V1 scope is `SSH + SFTP + workspace shell + built-in extension points`.
 - Do not introduce a third-party plugin marketplace or dynamic external plugin loading in V1.
+- Localization baseline is Simplified Chinese. Startup should detect the system locale and keep a clear extension point for future non-Chinese language packs.
 
 ## Stack
 - Frontend: React 19 + TypeScript + Vite

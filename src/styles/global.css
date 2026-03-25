@@ -121,6 +121,13 @@ textarea {
   font-size: clamp(28px, 4vw, 42px);
 }
 
+.workspace-locale-hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  max-width: 640px;
+  line-height: 1.5;
+}
+
 .workspace-topbar__stats {
   display: flex;
   gap: 14px;

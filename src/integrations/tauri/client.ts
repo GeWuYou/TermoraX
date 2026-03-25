@@ -8,6 +8,7 @@ import type {
 } from "../../entities/domain";
 import { defaultAppSettings, starterConnections, starterSnippets } from "../../features/settings/model/defaults";
 import { createId } from "../../shared/lib/id";
+import { getLocaleState, t } from "../../shared/i18n";
 
 declare global {
   interface Window {
@@ -18,23 +19,23 @@ declare global {
 const starterExtensions = [
   {
     id: "builtin.sidebar.files",
-    title: "Remote Files",
+    title: "远程文件",
     kind: "sidebarPanel" as const,
-    description: "Built-in SFTP browser contribution.",
+    description: "内建 SFTP 文件浏览面板。",
     entrypoint: "features/sftp/components/FilePanel",
   },
   {
     id: "builtin.sidebar.snippets",
-    title: "Command Snippets",
+    title: "命令片段",
     kind: "sidebarPanel" as const,
-    description: "Snippet execution and management panel.",
+    description: "命令片段执行与管理面板。",
     entrypoint: "features/snippets/components/SnippetPanel",
   },
   {
     id: "builtin.protocol.ssh",
-    title: "SSH Adapter",
+    title: "SSH 适配器",
     kind: "connectionProtocol" as const,
-    description: "Primary protocol adapter for interactive remote sessions.",
+    description: "交互式远程会话的主协议适配器。",
     entrypoint: "services/ssh",
   },
 ];
@@ -48,7 +49,7 @@ let mockState: BootstrapState = {
   activity: [
     {
       id: createId("activity"),
-      title: "Browser fallback active. Launch with `bun tauri dev` to use the host runtime.",
+      title: t("mock.browserFallback"),
       timestamp: new Date().toISOString(),
     },
   ],
@@ -102,10 +103,14 @@ function createMockSession(connectionId: string): BootstrapState {
     status: "connected" as const,
     currentPath: `/home/${connection.username}`,
     lastOutput: [
-      `Connected to ${connection.username}@${connection.host}:${connection.port}`,
+      t("mock.simConnected", {
+        user: connection.username,
+        host: connection.host,
+        port: connection.port,
+      }),
       "",
-      "[simulator] SSH transport is not wired yet.",
-      "[simulator] This workspace validates the app shell, state flow, and command boundaries.",
+      t("mock.simTransport"),
+      t("mock.simShell"),
     ].join("\n"),
     createdAt: now,
     updatedAt: now,
@@ -118,7 +123,7 @@ function createMockSession(connectionId: string): BootstrapState {
     ),
     sessions: [session, ...mockState.sessions],
   };
-  recordActivity(`Opened simulated session for ${connection.name}.`);
+  recordActivity(t("mock.openedSession", { name: connection.name }));
   return cloneState();
 }
 
@@ -136,7 +141,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
         ...mockState,
         connections: upsertById(mockState.connections, profile),
       };
-      recordActivity(`Saved connection profile ${profile.name}.`);
+      recordActivity(t("mock.savedConnection", { name: profile.name }));
       return cloneState() as T;
     }
     case "delete_connection_profile": {
@@ -147,7 +152,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
         connections: mockState.connections.filter((item) => item.id !== connectionId),
         sessions: mockState.sessions.filter((item) => item.connectionId !== connectionId),
       };
-      recordActivity(`Deleted connection profile ${connection?.name ?? connectionId}.`);
+      recordActivity(t("mock.deletedConnection", { name: connection?.name ?? connectionId }));
       return cloneState() as T;
     }
     case "save_command_snippet": {
@@ -156,7 +161,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
         ...mockState,
         snippets: upsertById(mockState.snippets, snippet),
       };
-      recordActivity(`Saved command snippet ${snippet.name}.`);
+      recordActivity(t("mock.savedSnippet", { name: snippet.name }));
       return cloneState() as T;
     }
     case "delete_command_snippet": {
@@ -166,18 +171,18 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
         ...mockState,
         snippets: mockState.snippets.filter((item) => item.id !== snippetId),
       };
-      recordActivity(`Deleted command snippet ${snippet?.name ?? snippetId}.`);
+      recordActivity(t("mock.deletedSnippet", { name: snippet?.name ?? snippetId }));
       return cloneState() as T;
     }
     case "save_settings": {
       const settings = args?.settings as AppSettings;
       mockState = { ...mockState, settings };
-      recordActivity("Saved workspace settings.");
+      recordActivity(t("mock.savedSettings"));
       return cloneState() as T;
     }
     case "reset_settings":
       mockState = { ...mockState, settings: defaultAppSettings };
-      recordActivity("Reset workspace settings.");
+      recordActivity(t("mock.resetSettings"));
       return cloneState() as T;
     case "open_session":
       return createMockSession(args?.connectionId as string) as T;
@@ -188,7 +193,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
         ...mockState,
         sessions: mockState.sessions.filter((item) => item.id !== sessionId),
       };
-      recordActivity(`Closed session ${session?.title ?? sessionId}.`);
+      recordActivity(t("mock.closedSession", { name: session?.title ?? sessionId }));
       return cloneState() as T;
     }
     case "send_session_input": {
@@ -201,12 +206,12 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
             ? {
                 ...item,
                 updatedAt: new Date().toISOString(),
-                lastOutput: `${item.lastOutput}\n\n$ ${input}\n[simulator] Command accepted by the host boundary.`,
+                lastOutput: `${item.lastOutput}\n\n$ ${input}\n${t("mock.commandAccepted")}`,
               }
             : item,
         ),
       };
-      recordActivity(`Sent command to session ${sessionId}.`);
+      recordActivity(t("mock.sentCommand"));
       return cloneState() as T;
     }
     case "run_snippet_on_session": {
@@ -214,7 +219,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
       const snippetId = args?.snippetId as string;
       const snippet = mockState.snippets.find((item) => item.id === snippetId);
       if (!snippet) {
-        throw new Error("Snippet not found");
+        throw new Error(t("errors.snippetNotFound"));
       }
       return callOrMock<T>("send_session_input", { sessionId, input: snippet.command });
     }
@@ -290,3 +295,9 @@ export const desktopClient = {
     return callOrMock<RemoteFileEntry[]>("list_remote_entries", { sessionId });
   },
 };
+
+const localeState = getLocaleState();
+
+if (localeState.hasPendingLocaleHook) {
+  recordActivity(t("locale.pendingHook", { locale: localeState.systemLocale }));
+}

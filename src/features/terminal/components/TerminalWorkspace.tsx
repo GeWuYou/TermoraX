@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { WorkspaceController } from "../../../app/useWorkspaceApp";
 import { StatusBadge } from "../../../shared/components/StatusBadge";
 import { Panel } from "../../../shared/components/Panel";
+import { t } from "../../../shared/i18n";
 import { formatTimestamp } from "../../../shared/lib/time";
 
 interface TerminalWorkspaceProps {
@@ -14,15 +15,15 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
 
   return (
     <Panel
-      title="Workspace"
-      subtitle={activeSession ? activeSession.title : "No active session"}
+      title={t("terminal.title")}
+      subtitle={activeSession ? activeSession.title : t("files.noSession")}
       actions={
         <div className="button-row">
           <button className="ghost-button" onClick={() => void controller.toggleTheme()} type="button">
-            Theme
+            {t("terminal.toggleTheme")}
           </button>
           <button className="ghost-button" onClick={() => void controller.toggleRightPanel()} type="button">
-            Panel
+            {t("terminal.togglePanel")}
           </button>
         </div>
       }
@@ -52,7 +53,7 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
               </span>
             </button>
           ))}
-          {state.sessions.length === 0 ? <div className="tab-strip__empty">Open a connection to start.</div> : null}
+          {state.sessions.length === 0 ? <div className="tab-strip__empty">{t("terminal.openHint")}</div> : null}
         </div>
 
         <div className="terminal-view">
@@ -60,7 +61,7 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
             <>
               <div className="terminal-meta">
                 <span>{activeSession.currentPath}</span>
-                <span>Last update: {formatTimestamp(activeSession.updatedAt)}</span>
+                <span>{t("terminal.lastUpdate", { time: formatTimestamp(activeSession.updatedAt) })}</span>
               </div>
               <pre
                 className={`terminal-output terminal-output--${state.settings.terminal.theme}`}
@@ -82,18 +83,18 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
               >
                 <input
                   onChange={(event) => setCommandInput(event.target.value)}
-                  placeholder="Type a command"
+                  placeholder={t("terminal.commandPlaceholder")}
                   value={commandInput}
                 />
                 <button className="primary-button" type="submit">
-                  Send
+                  {t("terminal.send")}
                 </button>
               </form>
             </>
           ) : (
             <div className="empty-stage">
-              <h3>Session area is ready</h3>
-              <p>Open a connection from the left sidebar. The current build simulates the transport while keeping the real Tauri command boundary intact.</p>
+              <h3>{t("terminal.emptyTitle")}</h3>
+              <p>{t("terminal.emptyBody")}</p>
             </div>
           )}
         </div>

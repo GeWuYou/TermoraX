@@ -1,5 +1,6 @@
 import type { RemoteFileEntry } from "../../../entities/domain";
 import { Panel } from "../../../shared/components/Panel";
+import { t } from "../../../shared/i18n";
 
 interface FilePanelProps {
   entries: RemoteFileEntry[];
@@ -8,10 +9,10 @@ interface FilePanelProps {
 
 export function FilePanel({ entries, currentPath }: FilePanelProps) {
   return (
-    <Panel title="Remote Files" subtitle={currentPath ?? "No session selected"}>
+    <Panel title={t("files.title")} subtitle={currentPath ?? t("files.noSession")}>
       {entries.length === 0 ? (
         <div className="empty-panel">
-          <p>Remote file data will appear after a session is opened.</p>
+          <p>{t("files.empty")}</p>
         </div>
       ) : (
         <div className="file-list">
@@ -22,8 +23,8 @@ export function FilePanel({ entries, currentPath }: FilePanelProps) {
                 <p>{entry.path}</p>
               </div>
               <div className="file-row__meta">
-                <span>{entry.kind}</span>
-                <span>{entry.kind === "file" ? `${entry.size} B` : "folder"}</span>
+                <span>{entry.kind === "file" ? t("files.file") : t("files.folder")}</span>
+                <span>{entry.kind === "file" ? `${entry.size} B` : t("files.folder")}</span>
               </div>
             </div>
           ))}

@@ -121,7 +121,7 @@ impl AppStore {
             sessions: Vec::new(),
             activity: vec![ActivityEntry {
                 id: next_id("activity"),
-                title: "Workspace state initialized.".into(),
+                title: "工作台状态已初始化。".into(),
                 timestamp: now_iso(),
             }],
         })
@@ -140,38 +140,38 @@ impl AppStore {
 
     fn save_connection_profile(&mut self, profile: ConnectionProfile) -> AppResult<()> {
         upsert_by_id(&mut self.persisted.connections, profile.clone());
-        self.record_activity(format!("Saved connection profile {}.", profile.name));
+        self.record_activity(format!("已保存连接配置 {}。", profile.name));
         self.persist()
     }
 
     fn delete_connection_profile(&mut self, connection_id: &str) -> AppResult<()> {
         self.persisted.connections.retain(|item| item.id != connection_id);
         self.sessions.retain(|item| item.connection_id != connection_id);
-        self.record_activity(format!("Deleted connection profile {}.", connection_id));
+        self.record_activity(format!("已删除连接配置 {}。", connection_id));
         self.persist()
     }
 
     fn save_command_snippet(&mut self, snippet: CommandSnippet) -> AppResult<()> {
         upsert_by_id(&mut self.persisted.snippets, snippet.clone());
-        self.record_activity(format!("Saved command snippet {}.", snippet.name));
+        self.record_activity(format!("已保存命令片段 {}。", snippet.name));
         self.persist()
     }
 
     fn delete_command_snippet(&mut self, snippet_id: &str) -> AppResult<()> {
         self.persisted.snippets.retain(|item| item.id != snippet_id);
-        self.record_activity(format!("Deleted command snippet {}.", snippet_id));
+        self.record_activity(format!("已删除命令片段 {}。", snippet_id));
         self.persist()
     }
 
     fn save_settings(&mut self, settings: crate::models::AppSettings) -> AppResult<()> {
         self.persisted.settings = settings;
-        self.record_activity("Saved workspace settings.".into());
+        self.record_activity("已保存工作台设置。".into());
         self.persist()
     }
 
     fn reset_settings(&mut self) -> AppResult<()> {
         self.persisted.settings = crate::models::AppSettings::default();
-        self.record_activity("Reset workspace settings.".into());
+        self.record_activity("已重置工作台设置。".into());
         self.persist()
     }
 
@@ -208,7 +208,7 @@ impl AppStore {
                 status: "connected".into(),
                 current_path: Some(format!("/home/{}", connection_username)),
                 last_output: format!(
-                    "Connected to {}@{}:{}\n\n[simulator] SSH transport is intentionally stubbed.\n[simulator] The Rust command boundary, persistence, and workspace lifecycle are wired.",
+                    "已连接到 {}@{}:{}\n\n[模拟器] SSH 传输层当前仍为桩实现。\n[模拟器] Rust 命令边界、持久化与工作台生命周期已经接通。",
                     connection_username, connection_host, connection_port
                 ),
                 created_at: now.clone(),
@@ -216,13 +216,13 @@ impl AppStore {
             },
         );
 
-        self.record_activity(format!("Opened session for {}.", connection_name));
+        self.record_activity(format!("已为 {} 打开会话。", connection_name));
         self.persist()
     }
 
     fn close_session(&mut self, session_id: &str) -> AppResult<()> {
         self.sessions.retain(|item| item.id != session_id);
-        self.record_activity(format!("Closed session {}.", session_id));
+        self.record_activity(format!("已关闭会话 {}。", session_id));
         self.persist()
     }
 
@@ -235,7 +235,7 @@ impl AppStore {
                 .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?;
 
             session.last_output = format!(
-                "{}\n\n$ {}\n[simulator] Host command accepted by Rust boundary.",
+                "{}\n\n$ {}\n[模拟器] Rust 宿主边界已接收该命令。",
                 session.last_output,
                 input.trim()
             );
@@ -243,7 +243,7 @@ impl AppStore {
             session.title.clone()
         };
 
-        self.record_activity(format!("Sent command to {}.", session_title));
+        self.record_activity(format!("已向 {} 发送命令。", session_title));
         self.persist()
     }
 

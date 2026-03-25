@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { CommandSnippet } from "../../../entities/domain";
 import type { WorkspaceController } from "../../../app/useWorkspaceApp";
 import { Panel } from "../../../shared/components/Panel";
+import { t } from "../../../shared/i18n";
 
 interface SnippetPanelProps {
   controller: WorkspaceController;
@@ -11,7 +12,7 @@ const emptySnippet = {
   name: "",
   command: "",
   description: "",
-  group: "General",
+  group: "默认分组",
   tags: "",
 };
 
@@ -31,7 +32,7 @@ export function SnippetPanel({ controller }: SnippetPanelProps) {
   }
 
   return (
-    <Panel title="Snippets" subtitle={`${controller.state.snippets.length} reusable commands`}>
+    <Panel title={t("snippets.title")} subtitle={t("snippets.subtitle", { count: controller.state.snippets.length })}>
       <div className="snippet-list">
         {controller.state.snippets.map((snippet) => (
           <div className="snippet-card" key={snippet.id}>
@@ -42,13 +43,13 @@ export function SnippetPanel({ controller }: SnippetPanelProps) {
               </div>
               <div className="button-row">
                 <button className="ghost-button" onClick={() => editSnippet(snippet)} type="button">
-                  Edit
+                  {t("snippets.edit")}
                 </button>
                 <button className="ghost-button" onClick={() => void controller.runSnippetOnActiveSession(snippet.id)} type="button">
-                  Run
+                  {t("snippets.run")}
                 </button>
                 <button className="danger-button" onClick={() => void controller.deleteSnippet(snippet.id)} type="button">
-                  Delete
+                  {t("snippets.delete")}
                 </button>
               </div>
             </div>
@@ -78,15 +79,15 @@ export function SnippetPanel({ controller }: SnippetPanelProps) {
         }}
       >
         <label>
-          <span>Name</span>
+          <span>{t("snippets.field.name")}</span>
           <input
             onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Disk Usage"
+            placeholder="磁盘占用检查"
             value={draft.name}
           />
         </label>
         <label>
-          <span>Command</span>
+          <span>{t("snippets.field.command")}</span>
           <textarea
             onChange={(event) => setDraft((current) => ({ ...current, command: event.target.value }))}
             placeholder="df -h"
@@ -95,33 +96,33 @@ export function SnippetPanel({ controller }: SnippetPanelProps) {
           />
         </label>
         <label>
-          <span>Description</span>
+          <span>{t("snippets.field.description")}</span>
           <input
             onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-            placeholder="Quickly inspect filesystem usage"
+            placeholder="快速查看文件系统占用"
             value={draft.description}
           />
         </label>
         <div className="form-grid">
           <label>
-            <span>Group</span>
+            <span>{t("snippets.field.group")}</span>
             <input
               onChange={(event) => setDraft((current) => ({ ...current, group: event.target.value }))}
-              placeholder="Diagnostics"
+              placeholder="诊断"
               value={draft.group}
             />
           </label>
           <label>
-            <span>Tags</span>
+            <span>{t("snippets.field.tags")}</span>
             <input
               onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))}
-              placeholder="disk, runtime"
+              placeholder="磁盘, 运行时"
               value={draft.tags}
             />
           </label>
         </div>
         <button className="primary-button" type="submit">
-          Save Snippet
+          {t("snippets.save")}
         </button>
       </form>
     </Panel>

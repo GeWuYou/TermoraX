@@ -11,6 +11,7 @@ import type {
 import { desktopClient } from "../integrations/tauri/client";
 import { defaultAppSettings } from "../features/settings/model/defaults";
 import { createId } from "../shared/lib/id";
+import { t } from "../shared/i18n";
 
 interface WorkspaceState extends BootstrapState {
   isLoading: boolean;
@@ -70,7 +71,7 @@ export function useWorkspaceApp() {
     } catch (error) {
       setState((current) => ({
         ...current,
-        error: error instanceof Error ? error.message : "Unexpected workspace error",
+        error: error instanceof Error ? error.message : t("errors.unexpectedWorkspace"),
       }));
     }
   }
@@ -97,7 +98,7 @@ export function useWorkspaceApp() {
         if (!cancelled) {
           setState((current) => ({
             ...current,
-            error: error instanceof Error ? error.message : "Failed to refresh remote files",
+            error: error instanceof Error ? error.message : t("errors.remoteEntries"),
           }));
         }
       });
@@ -129,12 +130,12 @@ export function useWorkspaceApp() {
     async saveConnectionProfile(input: Partial<ConnectionProfile>) {
       const profile: ConnectionProfile = {
         id: input.id ?? createId("conn"),
-        name: input.name?.trim() || "untitled-host",
+        name: input.name?.trim() || "未命名主机",
         host: input.host?.trim() || "127.0.0.1",
         port: input.port ?? 22,
         username: input.username?.trim() || "root",
         authType: input.authType ?? "password",
-        group: input.group?.trim() || "General",
+        group: input.group?.trim() || "默认分组",
         tags: input.tags ?? [],
         note: input.note?.trim() || "",
         lastConnectedAt: input.lastConnectedAt ?? null,
@@ -166,10 +167,10 @@ export function useWorkspaceApp() {
     async saveSnippet(input: Partial<CommandSnippet>) {
       const snippet: CommandSnippet = {
         id: input.id ?? createId("snippet"),
-        name: input.name?.trim() || "New Snippet",
+        name: input.name?.trim() || "新片段",
         command: input.command?.trim() || "echo ready",
         description: input.description?.trim() || "",
-        group: input.group?.trim() || "General",
+        group: input.group?.trim() || "默认分组",
         tags: input.tags ?? [],
         favorite: input.favorite ?? false,
       };

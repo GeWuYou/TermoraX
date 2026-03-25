@@ -4,6 +4,7 @@ import { SnippetPanel } from "../../snippets/components/SnippetPanel";
 import { FilePanel } from "../../sftp/components/FilePanel";
 import { TerminalWorkspace } from "../../terminal/components/TerminalWorkspace";
 import { formatTimestamp } from "../../../shared/lib/time";
+import { getLocaleState, t } from "../../../shared/i18n";
 
 interface WorkspaceShellProps {
   controller: WorkspaceController;
@@ -11,26 +12,32 @@ interface WorkspaceShellProps {
 
 export function WorkspaceShell({ controller }: WorkspaceShellProps) {
   const { state, activeSession } = controller;
+  const localeState = getLocaleState();
 
   return (
     <div className={`workspace workspace--${state.settings.terminal.theme}`}>
       <header className="workspace-topbar">
         <div>
-          <p className="workspace-topbar__eyebrow">TermoraX</p>
-          <h1>Desktop SSH Workspace</h1>
+          <p className="workspace-topbar__eyebrow">{t("app.name")}</p>
+          <h1>{t("workspace.title")}</h1>
+          {localeState.hasPendingLocaleHook ? (
+            <p className="workspace-locale-hint">
+              {t("locale.pendingHook", { locale: localeState.systemLocale })}
+            </p>
+          ) : null}
         </div>
         <div className="workspace-topbar__stats">
           <div>
             <strong>{state.connections.length}</strong>
-            <span>Connections</span>
+            <span>{t("workspace.metric.connections")}</span>
           </div>
           <div>
             <strong>{state.sessions.length}</strong>
-            <span>Sessions</span>
+            <span>{t("workspace.metric.sessions")}</span>
           </div>
           <div>
             <strong>{state.extensions.length}</strong>
-            <span>Extensions</span>
+            <span>{t("workspace.metric.extensions")}</span>
           </div>
         </div>
       </header>
@@ -56,8 +63,8 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
               <section className="panel">
                 <header className="panel__header">
                   <div>
-                    <p className="panel__eyebrow">Activity</p>
-                    <h2 className="panel__title">Recent host events</h2>
+                    <p className="panel__eyebrow">{t("workspace.panel.activity")}</p>
+                    <h2 className="panel__title">{t("workspace.panel.activitySubtitle")}</h2>
                   </div>
                 </header>
                 <div className="panel__body">
@@ -76,8 +83,8 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
             <section className="panel panel--compact">
               <header className="panel__header">
                 <div>
-                  <p className="panel__eyebrow">Extension Registry</p>
-                  <h2 className="panel__title">Built-in contributions</h2>
+                  <p className="panel__eyebrow">{t("workspace.panel.extensions")}</p>
+                  <h2 className="panel__title">{t("workspace.panel.extensionsSubtitle")}</h2>
                 </div>
               </header>
               <div className="panel__body">
@@ -98,20 +105,24 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
       <footer className="workspace-footer">
         <div className="button-row">
           <button className="ghost-button" onClick={() => void controller.updateRightPanel("files")} type="button">
-            Files
+            {t("workspace.action.files")}
           </button>
           <button className="ghost-button" onClick={() => void controller.updateRightPanel("snippets")} type="button">
-            Snippets
+            {t("workspace.action.snippets")}
           </button>
           <button className="ghost-button" onClick={() => void controller.updateRightPanel("activity")} type="button">
-            Activity
+            {t("workspace.action.activity")}
           </button>
         </div>
         <div className="button-row">
           <button className="ghost-button" onClick={() => void controller.resetSettings()} type="button">
-            Reset Settings
+            {t("workspace.action.resetSettings")}
           </button>
-          <span>Current theme: {state.settings.terminal.theme}</span>
+          <span>
+            {t("workspace.currentTheme", {
+              theme: t(`workspace.theme.${state.settings.terminal.theme}`),
+            })}
+          </span>
         </div>
       </footer>
     </div>
