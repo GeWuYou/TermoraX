@@ -60,14 +60,27 @@ pub struct ConnectionExportResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTab {
+    /// Stable identifier used by frontend actions to target a session.
     pub id: String,
+    /// Connection profile identifier associated with this session.
     pub connection_id: String,
+    /// Human-readable tab title shown in the workspace UI.
     pub title: String,
+    /// Protocol label for the current session transport.
     pub protocol: String,
+    /// Connection status tracked by the simulated runtime.
     pub status: String,
+    /// Best-known remote working directory for file-oriented UI panels.
     pub current_path: Option<String>,
+    /// Buffered terminal transcript currently exposed to the frontend.
     pub last_output: String,
+    /// Tracked terminal width for simulated resize behavior.
+    pub terminal_cols: u16,
+    /// Tracked terminal height for simulated resize behavior.
+    pub terminal_rows: u16,
+    /// Session creation timestamp in backend-owned string form.
     pub created_at: String,
+    /// Last mutation timestamp in backend-owned string form.
     pub updated_at: String,
 }
 

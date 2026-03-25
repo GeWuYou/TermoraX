@@ -103,6 +103,35 @@ pub fn close_session(state: State<'_, AppState>, session_id: String) -> AppResul
     state.close_session(&session_id)
 }
 
+/// Reconnects an existing simulated session.
+#[tauri::command]
+pub fn reconnect_session(state: State<'_, AppState>, session_id: String) -> AppResult<BootstrapState> {
+    state.reconnect_session(&session_id)
+}
+
+/// Clears the output transcript for a simulated session.
+#[tauri::command]
+pub fn clear_session_output(state: State<'_, AppState>, session_id: String) -> AppResult<BootstrapState> {
+    state.clear_session_output(&session_id)
+}
+
+/// Closes every session except the target session.
+#[tauri::command]
+pub fn close_other_sessions(state: State<'_, AppState>, session_id: String) -> AppResult<BootstrapState> {
+    state.close_other_sessions(&session_id)
+}
+
+/// Resizes the terminal metadata tracked for a simulated session.
+#[tauri::command]
+pub fn resize_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> AppResult<BootstrapState> {
+    state.resize_session(&session_id, cols, rows)
+}
+
 #[tauri::command]
 pub fn send_session_input(
     state: State<'_, AppState>,

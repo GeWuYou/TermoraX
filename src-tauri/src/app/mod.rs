@@ -30,6 +30,10 @@ pub fn run() {
             commands::reset_settings,
             commands::open_session,
             commands::close_session,
+            commands::reconnect_session,
+            commands::clear_session_output,
+            commands::close_other_sessions,
+            commands::resize_session,
             commands::send_session_input,
             commands::run_snippet_on_session,
             commands::list_remote_entries

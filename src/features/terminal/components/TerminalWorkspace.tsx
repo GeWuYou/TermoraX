@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { WorkspaceController } from "../../../app/useWorkspaceApp";
 import { StatusBadge } from "../../../shared/components/StatusBadge";
 import { Panel } from "../../../shared/components/Panel";
@@ -12,6 +12,16 @@ interface TerminalWorkspaceProps {
 export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
   const { state, activeSession } = controller;
   const [commandInput, setCommandInput] = useState("");
+  const hasOtherSessions = state.sessions.length > 1;
+  // Only surface terminal dimensions when both axes are available.
+  const sessionSize = useMemo(() => {
+    const cols = activeSession?.terminalCols;
+    const rows = activeSession?.terminalRows;
+    if (cols == null || rows == null) {
+      return null;
+    }
+    return { cols, rows };
+  }, [activeSession?.terminalCols, activeSession?.terminalRows]);
 
   return (
     <Panel
@@ -62,6 +72,34 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
               <div className="terminal-meta">
                 <span>{activeSession.currentPath}</span>
                 <span>{t("terminal.lastUpdate", { time: formatTimestamp(activeSession.updatedAt) })}</span>
+                {sessionSize ? (
+                  <span>{t("terminal.size", { cols: sessionSize.cols, rows: sessionSize.rows })}</span>
+                ) : null}
+              </div>
+              <div className="button-row">
+                <button
+                  className="ghost-button"
+                  onClick={() => void controller.reconnectSession(activeSession.id)}
+                  type="button"
+                >
+                  {t("terminal.reconnect")}
+                </button>
+                <button
+                  className="ghost-button"
+                  onClick={() => void controller.clearSessionOutput(activeSession.id)}
+                  type="button"
+                >
+                  {t("terminal.clearOutput")}
+                </button>
+                <button
+                  className="ghost-button"
+                  disabled={!hasOtherSessions}
+                  onClick={() => void controller.closeOtherSessions(activeSession.id)}
+                  title={!hasOtherSessions ? t("terminal.noOtherSessions") : undefined}
+                  type="button"
+                >
+                  {t("terminal.closeOthers")}
+                </button>
               </div>
               <pre
                 className={`terminal-output terminal-output--${state.settings.terminal.theme}`}
@@ -77,7 +115,11 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
                 className="terminal-input-row"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void controller.sendSessionInput(activeSession.id, commandInput);
+                  const trimmed = commandInput.trim();
+                  if (!trimmed) {
+                    return;
+                  }
+                  void controller.sendSessionInput(activeSession.id, trimmed);
                   setCommandInput("");
                 }}
               >

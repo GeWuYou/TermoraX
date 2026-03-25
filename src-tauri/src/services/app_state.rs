@@ -13,7 +13,7 @@ use crate::{
         ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, PersistedState, RemoteFileEntry,
         SessionTab,
     },
-    services::connections,
+    services::{connections, sessions},
 };
 
 /// Shared backend state managed by Tauri.
@@ -109,6 +109,34 @@ impl AppState {
     pub fn close_session(&self, session_id: &str) -> AppResult<BootstrapState> {
         let mut store = self.store.lock()?;
         store.close_session(session_id)?;
+        Ok(store.snapshot())
+    }
+
+    /// Reconnects an existing simulated session.
+    pub fn reconnect_session(&self, session_id: &str) -> AppResult<BootstrapState> {
+        let mut store = self.store.lock()?;
+        store.reconnect_session(session_id)?;
+        Ok(store.snapshot())
+    }
+
+    /// Clears the tracked output of a simulated session.
+    pub fn clear_session_output(&self, session_id: &str) -> AppResult<BootstrapState> {
+        let mut store = self.store.lock()?;
+        store.clear_session_output(session_id)?;
+        Ok(store.snapshot())
+    }
+
+    /// Closes every simulated session except the target one.
+    pub fn close_other_sessions(&self, session_id: &str) -> AppResult<BootstrapState> {
+        let mut store = self.store.lock()?;
+        store.close_other_sessions(session_id)?;
+        Ok(store.snapshot())
+    }
+
+    /// Updates the simulated terminal size for a session.
+    pub fn resize_session(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<BootstrapState> {
+        let mut store = self.store.lock()?;
+        store.resize_session(session_id, cols, rows)?;
         Ok(store.snapshot())
     }
 
@@ -266,7 +294,7 @@ impl AppStore {
     }
 
     fn open_session(&mut self, connection_id: &str) -> AppResult<()> {
-        let (connection_name, connection_username, connection_host, connection_port, connection_id_value) = {
+        let connection = {
             let connection = self
                 .persisted
                 .connections
@@ -277,62 +305,52 @@ impl AppStore {
             let now = now_iso();
             connection.last_connected_at = Some(now.clone());
 
-            (
-                connection.name.clone(),
-                connection.username.clone(),
-                connection.host.clone(),
-                connection.port,
-                connection.id.clone(),
-            )
+            connection.clone()
         };
 
-        let now = now_iso();
-
-        self.sessions.insert(
-            0,
-            SessionTab {
-                id: next_id("session"),
-                connection_id: connection_id_value,
-                title: connection_name.clone(),
-                protocol: "ssh".into(),
-                status: "connected".into(),
-                current_path: Some(format!("/home/{}", connection_username)),
-                last_output: format!(
-                    "已连接到 {}@{}:{}\n\n[模拟器] SSH 传输层当前仍为桩实现。\n[模拟器] Rust 命令边界、持久化与工作台生命周期已经接通。",
-                    connection_username, connection_host, connection_port
-                ),
-                created_at: now.clone(),
-                updated_at: now.clone(),
-            },
-        );
-
-        self.record_activity(format!("已为 {} 打开会话。", connection_name));
+        self.sessions.insert(0, sessions::open_simulated_session(&connection));
+        self.record_activity(format!("已为 {} 打开会话。", connection.name));
         self.persist()
     }
 
     fn close_session(&mut self, session_id: &str) -> AppResult<()> {
-        self.sessions.retain(|item| item.id != session_id);
-        self.record_activity(format!("已关闭会话 {}。", session_id));
+        let session_title = sessions::close_session(&mut self.sessions, session_id)?;
+        self.record_activity(format!("已关闭会话 {}。", session_title));
+        self.persist()
+    }
+
+    fn reconnect_session(&mut self, session_id: &str) -> AppResult<()> {
+        let connection = self
+            .find_connection_for_session(session_id)?
+            .clone();
+        let session_title = sessions::reconnect_session(&mut self.sessions, session_id, &connection)?;
+        self.record_activity(format!("已重新连接会话 {}。", session_title));
+        self.persist()
+    }
+
+    fn clear_session_output(&mut self, session_id: &str) -> AppResult<()> {
+        let session_title = sessions::clear_session_output(&mut self.sessions, session_id)?;
+        self.record_activity(format!("已清空会话 {} 的输出。", session_title));
+        self.persist()
+    }
+
+    fn close_other_sessions(&mut self, session_id: &str) -> AppResult<()> {
+        let removed = sessions::close_other_sessions(&mut self.sessions, session_id)?;
+        self.record_activity(format!("已关闭 {} 个其它会话。", removed));
+        self.persist()
+    }
+
+    fn resize_session(&mut self, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
+        let session_title = sessions::resize_session(&mut self.sessions, session_id, cols, rows)?;
+        self.record_activity(format!(
+            "已将会话 {} 调整为 {}x{}。",
+            session_title, cols, rows
+        ));
         self.persist()
     }
 
     fn send_session_input(&mut self, session_id: &str, input: &str) -> AppResult<()> {
-        let session_title = {
-            let session = self
-                .sessions
-                .iter_mut()
-                .find(|item| item.id == session_id)
-                .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?;
-
-            session.last_output = format!(
-                "{}\n\n$ {}\n[模拟器] Rust 宿主边界已接收该命令。",
-                session.last_output,
-                input.trim()
-            );
-            session.updated_at = now_iso();
-            session.title.clone()
-        };
-
+        let session_title = sessions::send_session_input(&mut self.sessions, session_id, input)?;
         self.record_activity(format!("已向 {} 发送命令。", session_title));
         self.persist()
     }
@@ -384,6 +402,20 @@ impl AppStore {
                 modified_at: now_iso(),
             },
         ])
+    }
+
+    fn find_connection_for_session(&self, session_id: &str) -> AppResult<&ConnectionProfile> {
+        let session = self
+            .sessions
+            .iter()
+            .find(|item| item.id == session_id)
+            .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?;
+
+        self.persisted
+            .connections
+            .iter()
+            .find(|item| item.id == session.connection_id)
+            .ok_or_else(|| AppError::new("connection_not_found", session.connection_id.clone()))
     }
 
     fn persist(&self) -> AppResult<()> {
@@ -504,5 +536,52 @@ mod tests {
             .expect("validation should succeed");
 
         assert_eq!(result.normalized_profile.name, "测试主机");
+    }
+
+    #[test]
+    fn app_state_supports_session_runtime_actions() {
+        let dir = temp_config_dir("session-actions");
+        let state = AppState::new(dir).expect("state should initialize");
+        let opened = state
+            .open_session("conn-prod-app-01")
+            .expect("session should open");
+        let session_id = opened.sessions[0].id.clone();
+
+        let resized = state
+            .resize_session(&session_id, 150, 40)
+            .expect("resize should succeed");
+        assert_eq!(resized.sessions[0].terminal_cols, 150);
+        assert_eq!(resized.sessions[0].terminal_rows, 40);
+
+        let cleared = state
+            .clear_session_output(&session_id)
+            .expect("clear should succeed");
+        assert_eq!(cleared.sessions[0].last_output, "[模拟器] 会话输出已清空。");
+
+        let reconnected = state
+            .reconnect_session(&session_id)
+            .expect("reconnect should succeed");
+        assert!(reconnected.sessions[0].last_output.contains("已重新连接"));
+    }
+
+    #[test]
+    fn app_state_closes_other_sessions() {
+        let dir = temp_config_dir("close-others");
+        let state = AppState::new(dir).expect("state should initialize");
+        let first = state
+            .open_session("conn-prod-app-01")
+            .expect("first session should open");
+        let keep_id = first.sessions[0].id.clone();
+        let second = state
+            .open_session("conn-stage-bastion")
+            .expect("second session should open");
+        assert_eq!(second.sessions.len(), 2);
+
+        let remaining = state
+            .close_other_sessions(&keep_id)
+            .expect("close others should succeed");
+
+        assert_eq!(remaining.sessions.len(), 1);
+        assert_eq!(remaining.sessions[0].id, keep_id);
     }
 }

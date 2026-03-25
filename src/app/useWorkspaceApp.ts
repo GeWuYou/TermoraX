@@ -292,8 +292,20 @@ export function useWorkspaceApp() {
           current.sessions.find((item) => item.connectionId === connectionId)?.id ?? current.activeSessionId,
       }));
     },
+    async reconnectSession(sessionId: string) {
+      await runMutation(() => desktopClient.reconnectSession(sessionId));
+    },
     async closeSession(sessionId: string) {
       await runMutation(() => desktopClient.closeSession(sessionId));
+    },
+    async closeOtherSessions(sessionId: string) {
+      await runMutation(() => desktopClient.closeOtherSessions(sessionId));
+    },
+    async clearSessionOutput(sessionId: string) {
+      await runMutation(() => desktopClient.clearSessionOutput(sessionId));
+    },
+    async resizeSession(sessionId: string, cols: number, rows: number) {
+      await runMutation(() => desktopClient.resizeSession(sessionId, cols, rows));
     },
     async sendSessionInput(sessionId: string, input: string) {
       if (!input.trim()) {

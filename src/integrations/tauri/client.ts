@@ -110,6 +110,8 @@ function createMockSession(connectionId: string): BootstrapState {
     protocol: "ssh" as const,
     status: "connected" as const,
     currentPath: `/home/${connection.username}`,
+    terminalCols: 120,
+    terminalRows: 32,
     lastOutput: [
       t("mock.simConnected", {
         user: connection.username,
@@ -293,6 +295,24 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
       return cloneState() as T;
     case "open_session":
       return createMockSession(args?.connectionId as string) as T;
+    case "reconnect_session": {
+      const sessionId = args?.sessionId as string;
+      mockState = {
+        ...mockState,
+        sessions: mockState.sessions.map((item) =>
+          item.id === sessionId
+            ? {
+                ...item,
+                status: "connected",
+                updatedAt: new Date().toISOString(),
+                lastOutput: `${item.lastOutput}\n\n${t("terminal.reconnected")}`,
+              }
+            : item,
+        ),
+      };
+      recordActivity(t("terminal.reconnected"));
+      return cloneState() as T;
+    }
     case "close_session": {
       const sessionId = args?.sessionId as string;
       const session = mockState.sessions.find((item) => item.id === sessionId);
@@ -301,6 +321,51 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
         sessions: mockState.sessions.filter((item) => item.id !== sessionId),
       };
       recordActivity(t("mock.closedSession", { name: session?.title ?? sessionId }));
+      return cloneState() as T;
+    }
+    case "close_other_sessions": {
+      const sessionId = args?.sessionId as string;
+      mockState = {
+        ...mockState,
+        sessions: mockState.sessions.filter((item) => item.id === sessionId),
+      };
+      recordActivity(t("terminal.closedOthers"));
+      return cloneState() as T;
+    }
+    case "clear_session_output": {
+      const sessionId = args?.sessionId as string;
+      mockState = {
+        ...mockState,
+        sessions: mockState.sessions.map((item) =>
+          item.id === sessionId
+            ? {
+                ...item,
+                updatedAt: new Date().toISOString(),
+                lastOutput: t("terminal.outputCleared"),
+              }
+            : item,
+        ),
+      };
+      recordActivity(t("terminal.outputCleared"));
+      return cloneState() as T;
+    }
+    case "resize_session": {
+      const sessionId = args?.sessionId as string;
+      const cols = Number(args?.cols ?? 120);
+      const rows = Number(args?.rows ?? 32);
+      mockState = {
+        ...mockState,
+        sessions: mockState.sessions.map((item) =>
+          item.id === sessionId
+            ? {
+                ...item,
+                terminalCols: cols,
+                terminalRows: rows,
+                updatedAt: new Date().toISOString(),
+              }
+            : item,
+        ),
+      };
       return cloneState() as T;
     }
     case "send_session_input": {
@@ -398,8 +463,20 @@ export const desktopClient = {
   openSession(connectionId: string) {
     return callOrMock<BootstrapState>("open_session", { connectionId });
   },
+  reconnectSession(sessionId: string) {
+    return callOrMock<BootstrapState>("reconnect_session", { sessionId });
+  },
   closeSession(sessionId: string) {
     return callOrMock<BootstrapState>("close_session", { sessionId });
+  },
+  closeOtherSessions(sessionId: string) {
+    return callOrMock<BootstrapState>("close_other_sessions", { sessionId });
+  },
+  clearSessionOutput(sessionId: string) {
+    return callOrMock<BootstrapState>("clear_session_output", { sessionId });
+  },
+  resizeSession(sessionId: string, cols: number, rows: number) {
+    return callOrMock<BootstrapState>("resize_session", { sessionId, cols, rows });
   },
   sendSessionInput(sessionId: string, input: string) {
     return callOrMock<BootstrapState>("send_session_input", { sessionId, input });

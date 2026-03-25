@@ -64,3 +64,9 @@
 - Break large tasks into smaller, well-defined subtasks before delegating.
 - Clearly define input/output expectations for sub-agents.
 - Avoid mixing multiple domains (e.g., SSH + UI + persistence) in a single task unless necessary.
+
+### Planning Maintenance
+- Keep planning artifacts under `plan/`.
+- When implementing work, update `plan/TODO.md` continuously so completed items are checked off in the same turn whenever practical.
+- When a roadmap milestone or the entire current TODO set is completed, update `plan/ROADMAP.md` to reflect the new status.
+- When `plan/TODO.md` is fully completed, archive the old TODO into `plan/archive/` with a timestamped filename, regenerate a fresh `plan/TODO.md` for the next phase, and refresh `plan/ROADMAP.md` to match the new backlog.

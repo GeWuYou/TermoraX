@@ -55,6 +55,8 @@ export interface SessionTab {
   status: SessionStatus;
   currentPath: string | null;
   lastOutput: string;
+  terminalCols?: number;
+  terminalRows?: number;
   createdAt: string;
   updatedAt: string;
 }
