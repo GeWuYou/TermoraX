@@ -179,7 +179,9 @@ impl RusshSshService {
     /// Builds the russh client configuration shared by upcoming real SSH sessions.
     pub fn build_client_config(&self, plan: &SshConnectPlan) -> Arc<client::Config> {
         let mut config = client::Config::default();
-        config.inactivity_timeout = Some(Duration::from_secs(plan.connect_timeout_secs));
+        // Connection timeout is enforced explicitly around connect/auth/open steps.
+        // Keeping an inactivity timeout here would disconnect otherwise healthy idle shells.
+        config.inactivity_timeout = None;
         config.keepalive_interval = Some(Duration::from_secs(plan.keepalive_interval_secs));
         config.keepalive_max = plan.keepalive_max;
         Arc::new(config)
@@ -569,6 +571,8 @@ fn classify_ssh_error(default_code: &'static str, fallback_message: &'static str
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::{
         InspectedSshHostKey, PreparedSshAuth, SshCredentials, build_host_fingerprint_mismatch_error,
         classify_transport_error_code, default_ssh_service, inspect_public_key,
@@ -608,6 +612,18 @@ mod tests {
         assert_eq!(password_plan.username, "deploy");
         assert_eq!(private_key_plan.library, "russh");
         assert_eq!(private_key_plan.keepalive_interval_secs, 15);
+    }
+
+    #[test]
+    fn build_client_config_does_not_disconnect_idle_shells() {
+        let service = default_ssh_service();
+        let plan = service
+            .build_connect_plan(&profile("password"))
+            .expect("password auth should be supported");
+        let config = service.build_client_config(&plan);
+
+        assert_eq!(config.inactivity_timeout, None);
+        assert_eq!(config.keepalive_interval, Some(Duration::from_secs(15)));
     }
 
     #[test]
