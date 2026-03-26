@@ -8,6 +8,7 @@ interface FilePanelProps {
   entries: RemoteFileEntry[];
   currentPath: string | null;
   loading?: boolean;
+  onRefresh?: () => void;
   onOpenDirectory?: (path: string) => void;
   onGoParent?: () => void;
   onUpload?: () => void;
@@ -40,6 +41,7 @@ export function FilePanel(props: FilePanelProps) {
     entries,
     currentPath,
     loading = false,
+    onRefresh,
     onOpenDirectory,
     onGoParent,
     onUpload,
@@ -58,7 +60,7 @@ export function FilePanel(props: FilePanelProps) {
     : t("files.empty");
 
   return (
-    <Panel title={t("files.title")} subtitle={pathDisplay}>
+    <Panel title={t("files.title")} subtitle={pathDisplay} className="file-panel">
       <section className="file-panel__meta">
         <p>
           <span className="file-panel__meta-label">{pathLabel}</span>
@@ -66,6 +68,17 @@ export function FilePanel(props: FilePanelProps) {
         </p>
         <p className="file-panel__meta-count">{summaryLabel}</p>
         <div className="file-panel__meta-actions">
+          {onRefresh ? (
+            <button
+              type="button"
+              className="ghost-button file-panel__action-button"
+              onClick={onRefresh}
+              disabled={loading || !currentPath}
+              aria-disabled={loading || !currentPath}
+            >
+              {t("files.refresh")}
+            </button>
+          ) : null}
           {onCreateDirectory ? (
             <button
               type="button"

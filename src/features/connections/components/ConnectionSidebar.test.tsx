@@ -104,6 +104,7 @@ function createController(overrides?: Partial<WorkspaceController>): WorkspaceCo
     sendSessionInput: async () => undefined,
     openRemoteDirectory: async () => undefined,
     goRemoteParent: async () => undefined,
+    refreshRemoteEntriesForActiveSession: async () => undefined,
     uploadFileToCurrentDirectory: async () => undefined,
     downloadRemoteFile: async () => undefined,
     retryTransfer: async () => undefined,

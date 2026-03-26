@@ -64,10 +64,11 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
                   entries={state.remoteEntries}
                   loading={state.remoteEntriesLoading}
                   onOpenDirectory={controller.openRemoteDirectory}
-                  onGoParent={controller.goRemoteParent}
-                  onUpload={controller.uploadFileToCurrentDirectory}
-                  onCreateDirectory={controller.createRemoteDirectory}
-                  onDownload={controller.downloadRemoteFile}
+                onGoParent={controller.goRemoteParent}
+                onRefresh={controller.refreshRemoteEntriesForActiveSession}
+                onUpload={controller.uploadFileToCurrentDirectory}
+                onCreateDirectory={controller.createRemoteDirectory}
+                onDownload={controller.downloadRemoteFile}
                   onRename={controller.renameRemoteEntry}
                   onDelete={controller.deleteRemoteEntry}
                 />

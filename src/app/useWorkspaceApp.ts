@@ -228,23 +228,8 @@ export function useWorkspaceApp() {
   }, []);
 
   useEffect(() => {
-    if (!state.activeSessionId) {
-      setState((current) => ({ ...current, remoteEntries: [], remoteEntriesLoading: false }));
-      return;
-    }
-
-    let cancelled = false;
-    void refreshRemoteEntries(state.activeSessionId).then(() => {
-      if (cancelled) {
-        setState((current) => ({ ...current, remoteEntriesLoading: false }));
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      setState((current) => ({ ...current, remoteEntriesLoading: false }));
-    };
-  }, [state.activeSessionId, activeSessionCurrentPath]);
+    setState((current) => ({ ...current, remoteEntries: [], remoteEntriesLoading: false }));
+  }, [state.activeSessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -495,6 +480,14 @@ export function useWorkspaceApp() {
         return;
       }
       await runMutation(() => desktopClient.navigateRemoteToParent(state.activeSessionId as string));
+      await refreshRemoteEntries(state.activeSessionId);
+    },
+    async refreshRemoteEntriesForActiveSession() {
+      if (!state.activeSessionId) {
+        return;
+      }
+
+      await refreshRemoteEntries(state.activeSessionId);
     },
     async retryTransfer(task: TransferTask) {
       await runMutation(() => desktopClient.retryTransferTask(task.id));

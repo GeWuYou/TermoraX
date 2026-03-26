@@ -79,6 +79,7 @@ describe("FilePanel", () => {
 
   it("shows file operation buttons when callbacks exist", async () => {
     const user = userEvent.setup();
+    const refresh = vi.fn();
     const createDirectory = vi.fn();
     const upload = vi.fn();
     const download = vi.fn();
@@ -88,6 +89,7 @@ describe("FilePanel", () => {
       <FilePanel
         entries={[sampleDir, sampleFile]}
         currentPath="/home/demo"
+        onRefresh={refresh}
         onCreateDirectory={createDirectory}
         onUpload={upload}
         onDownload={download}
@@ -96,6 +98,8 @@ describe("FilePanel", () => {
       />,
     );
 
+    await user.click(screen.getByRole("button", { name: "刷新" }));
+    expect(refresh).toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "新建目录" }));
     expect(createDirectory).toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "上传" }));

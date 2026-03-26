@@ -108,11 +108,7 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const didSave = await controller.saveConnectionProfile(buildDraftProfile());
-
-    if (didSave) {
-      setDraft(emptyDraft);
-    }
+    await controller.saveConnectionProfile(buildDraftProfile());
   }
 
   async function handleDeleteConfirm() {
