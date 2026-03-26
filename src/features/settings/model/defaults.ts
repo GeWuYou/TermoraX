@@ -11,8 +11,10 @@ export const defaultAppSettings: AppSettings = {
   },
   workspace: {
     sidebarCollapsed: false,
-    rightPanel: "files",
-    rightPanelVisible: true,
+    bottomPanel: "files",
+    bottomPanelVisible: true,
+    sidePanel: "activity",
+    sidePanelVisible: true,
   },
 };
 

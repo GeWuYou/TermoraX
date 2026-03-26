@@ -1,5 +1,78 @@
 use serde::{Deserialize, Serialize};
 
+const DEFAULT_THEME_ID: &str = "midnight";
+const DEFAULT_BOTTOM_PANEL_ID: &str = "files";
+const DEFAULT_SIDE_PANEL_ID: &str = "activity";
+
+fn default_font_family() -> String {
+    "\"JetBrains Mono\", \"Cascadia Code\", Consolas, monospace".into()
+}
+
+fn default_font_size() -> u16 {
+    14
+}
+
+fn default_line_height() -> f32 {
+    1.6
+}
+
+fn default_terminal_theme() -> String {
+    DEFAULT_THEME_ID.into()
+}
+
+fn default_cursor_style() -> String {
+    "block".into()
+}
+
+fn default_copy_on_select() -> bool {
+    false
+}
+
+fn default_sidebar_collapsed() -> bool {
+    false
+}
+
+fn default_bottom_panel() -> String {
+    DEFAULT_BOTTOM_PANEL_ID.into()
+}
+
+fn default_bottom_panel_visible() -> bool {
+    true
+}
+
+fn default_side_panel() -> String {
+    DEFAULT_SIDE_PANEL_ID.into()
+}
+
+fn default_side_panel_visible() -> bool {
+    true
+}
+
+fn normalize_theme_id(value: &str) -> &'static str {
+    match value {
+        "midnight" => "midnight",
+        "sand" => "sand",
+        "jade" => "jade",
+        "tide" => "tide",
+        "graphite" => "graphite",
+        _ => DEFAULT_THEME_ID,
+    }
+}
+
+fn normalize_bottom_panel_id(value: &str) -> &'static str {
+    match value {
+        "snippets" => "snippets",
+        _ => DEFAULT_BOTTOM_PANEL_ID,
+    }
+}
+
+fn normalize_side_panel_id(value: &str) -> &'static str {
+    match value {
+        "transfers" => "transfers",
+        _ => DEFAULT_SIDE_PANEL_ID,
+    }
+}
+
 /// A saved SSH connection profile shown in the workspace UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -177,46 +250,98 @@ pub struct CommandSnippet {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalPreferences {
+    #[serde(default = "default_font_family")]
     pub font_family: String,
+    #[serde(default = "default_font_size")]
     pub font_size: u16,
+    #[serde(default = "default_line_height")]
     pub line_height: f32,
+    #[serde(default = "default_terminal_theme")]
     pub theme: String,
+    #[serde(default = "default_cursor_style")]
     pub cursor_style: String,
+    #[serde(default = "default_copy_on_select")]
     pub copy_on_select: bool,
+}
+
+impl Default for TerminalPreferences {
+    fn default() -> Self {
+        Self {
+            font_family: default_font_family(),
+            font_size: default_font_size(),
+            line_height: default_line_height(),
+            theme: default_terminal_theme(),
+            cursor_style: default_cursor_style(),
+            copy_on_select: default_copy_on_select(),
+        }
+    }
+}
+
+impl TerminalPreferences {
+    pub fn normalize(mut self) -> Self {
+        self.theme = normalize_theme_id(self.theme.trim()).into();
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceLayout {
+    #[serde(default = "default_sidebar_collapsed")]
     pub sidebar_collapsed: bool,
-    pub right_panel: String,
-    pub right_panel_visible: bool,
+    #[serde(default = "default_bottom_panel", alias = "rightPanel")]
+    pub bottom_panel: String,
+    #[serde(default = "default_bottom_panel_visible", alias = "rightPanelVisible")]
+    pub bottom_panel_visible: bool,
+    #[serde(default = "default_side_panel")]
+    pub side_panel: String,
+    #[serde(default = "default_side_panel_visible")]
+    pub side_panel_visible: bool,
+}
+
+impl Default for WorkspaceLayout {
+    fn default() -> Self {
+        Self {
+            sidebar_collapsed: default_sidebar_collapsed(),
+            bottom_panel: default_bottom_panel(),
+            bottom_panel_visible: default_bottom_panel_visible(),
+            side_panel: default_side_panel(),
+            side_panel_visible: default_side_panel_visible(),
+        }
+    }
+}
+
+impl WorkspaceLayout {
+    pub fn normalize(mut self) -> Self {
+        self.bottom_panel = normalize_bottom_panel_id(self.bottom_panel.trim()).into();
+        self.side_panel = normalize_side_panel_id(self.side_panel.trim()).into();
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    #[serde(default)]
     pub terminal: TerminalPreferences,
+    #[serde(default)]
     pub workspace: WorkspaceLayout,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            terminal: TerminalPreferences {
-                font_family: "\"JetBrains Mono\", \"Cascadia Code\", Consolas, monospace".into(),
-                font_size: 14,
-                line_height: 1.6,
-                theme: "midnight".into(),
-                cursor_style: "block".into(),
-                copy_on_select: false,
-            },
-            workspace: WorkspaceLayout {
-                sidebar_collapsed: false,
-                right_panel: "files".into(),
-                right_panel_visible: true,
-            },
+            terminal: TerminalPreferences::default(),
+            workspace: WorkspaceLayout::default(),
         }
+    }
+}
+
+impl AppSettings {
+    pub fn normalize(mut self) -> Self {
+        self.terminal = self.terminal.normalize();
+        self.workspace = self.workspace.normalize();
+        self
     }
 }
 
@@ -255,6 +380,7 @@ pub struct BootstrapState {
 pub struct PersistedState {
     pub connections: Vec<ConnectionProfile>,
     pub snippets: Vec<CommandSnippet>,
+    #[serde(default)]
     pub settings: AppSettings,
     #[serde(default)]
     pub trusted_hosts: Vec<TrustedHost>,

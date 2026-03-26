@@ -151,9 +151,11 @@ function createController(session: SessionTab | null = sampleSession, overrides?
     deleteSnippet: vi.fn(),
     runSnippetOnActiveSession: vi.fn(),
     saveSettings: vi.fn(),
-    updateRightPanel: vi.fn(),
-    toggleRightPanel: vi.fn(),
-    toggleTheme: vi.fn(),
+    selectBottomPanel: vi.fn(),
+    toggleBottomPanel: vi.fn(),
+    selectSidePanel: vi.fn(),
+    toggleSidePanel: vi.fn(),
+    updateTheme: vi.fn(),
     resetSettings: vi.fn(),
   };
 
@@ -244,6 +246,28 @@ describe("TerminalWorkspace", () => {
       expect(readClipboardText).toHaveBeenCalled();
       expect(sendSessionInput).toHaveBeenCalledWith(sampleSession.id, "pasted-command");
     });
+  });
+
+  test("renders theme selector and panel toggles", async () => {
+    const updateTheme = vi.fn();
+    const toggleBottomPanel = vi.fn();
+    const toggleSidePanel = vi.fn();
+    const controller = createController(sampleSession, {
+      updateTheme,
+      toggleBottomPanel,
+      toggleSidePanel,
+    });
+
+    render(<TerminalWorkspace controller={controller} />);
+    const user = userEvent.setup();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "主题" }), "sand");
+    await user.click(screen.getByRole("button", { name: "底栏" }));
+    await user.click(screen.getByRole("button", { name: "侧栏" }));
+
+    expect(updateTheme).toHaveBeenCalledWith("sand");
+    expect(toggleBottomPanel).toHaveBeenCalledTimes(1);
+    expect(toggleSidePanel).toHaveBeenCalledTimes(1);
   });
 
   test("supports terminal shortcuts for clear and clipboard actions", async () => {

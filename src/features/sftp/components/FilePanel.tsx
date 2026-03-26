@@ -218,18 +218,6 @@ export function FilePanel(props: FilePanelProps) {
 
   return (
     <Panel title={t("files.title")} className="file-panel">
-      <div className="file-panel__tabs-row" onWheel={forwardWheelToActiveList}>
-        <div>
-          <button type="button" className="file-panel__tab file-panel__tab--active">
-            {t("files.tab.files")}
-          </button>
-          <button type="button" className="file-panel__tab file-panel__tab--disabled" disabled>
-            {t("files.tab.transfers")}
-          </button>
-        </div>
-        <p className="file-panel__meta-count">{summaryLabel}</p>
-      </div>
-
       <form className="file-panel__path-row" onSubmit={handlePathSubmit} onWheel={forwardWheelToActiveList}>
         <label className="sr-only" htmlFor="file-panel-path">
           {pathLabel}
@@ -271,6 +259,7 @@ export function FilePanel(props: FilePanelProps) {
           </button>
         </div>
       </form>
+      <p className="file-panel__meta-count">{summaryLabel}</p>
 
       {loading ? (
         <div className="file-panel__state">

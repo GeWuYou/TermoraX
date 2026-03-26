@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import type { WorkspaceController } from "../../../app/useWorkspaceApp";
 import { ConnectionSidebar } from "../../connections/components/ConnectionSidebar";
+import { getThemeDefinition } from "../../settings/model/themes";
 import { SnippetPanel } from "../../snippets/components/SnippetPanel";
 import { FilePanel } from "../../sftp/components/FilePanel";
 import { TransferPanel } from "../../transfers/components/TransferPanel";
@@ -46,14 +47,13 @@ function describeElement(element: HTMLElement | null): string {
 export function WorkspaceShell({ controller }: WorkspaceShellProps) {
   const { state, activeSession } = controller;
   const localeState = getLocaleState();
+  const themeDefinition = getThemeDefinition(state.settings.terminal.theme);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const mainStackRef = useRef<HTMLDivElement | null>(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(420);
   const [workspaceScale, setWorkspaceScale] = useState(1);
-  const bottomPanelVisible =
-    state.settings.workspace.rightPanelVisible && state.settings.workspace.rightPanel === "files";
-  const sidePanelVisible =
-    state.settings.workspace.rightPanelVisible && state.settings.workspace.rightPanel !== "files";
+  const bottomPanelVisible = state.settings.workspace.bottomPanelVisible;
+  const sidePanelVisible = state.settings.workspace.sidePanelVisible;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -270,7 +270,7 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
   );
 
   const workspaceContent = (
-    <div className={`workspace workspace--${state.settings.terminal.theme}`}>
+    <div className="workspace">
             <header className="workspace-topbar">
               <div>
                 <p className="workspace-topbar__eyebrow">{t("app.name")}</p>
@@ -316,21 +316,51 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
                         onPointerDown={handleBottomSplitPointerDown}
                       />
                       <section className="workspace-bottom-panel" style={{ height: `${bottomPanelHeight}px` }}>
-                        <FilePanel
-                          currentPath={activeSession?.currentPath ?? null}
-                          entries={state.remoteEntries}
-                          rootEntries={state.remoteRootEntries}
-                          layoutScale={workspaceScale}
-                          loading={state.remoteEntriesLoading}
-                          onOpenDirectory={controller.openRemoteDirectory}
-                          onGoParent={controller.goRemoteParent}
-                          onRefresh={controller.refreshRemoteEntriesForActiveSession}
-                          onUpload={controller.uploadFileToCurrentDirectory}
-                          onCreateDirectory={controller.createRemoteDirectory}
-                          onDownload={controller.downloadRemoteFile}
-                          onRename={controller.renameRemoteEntry}
-                          onDelete={controller.deleteRemoteEntry}
-                        />
+                        <div className="workspace-bottom-panel__tabs" role="tablist" aria-label={t("terminal.toggleBottomPanel")}>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={state.settings.workspace.bottomPanel === "files"}
+                            className={`workspace-bottom-panel__tab ${
+                              state.settings.workspace.bottomPanel === "files" ? "is-active" : ""
+                            }`}
+                            onClick={() => void controller.selectBottomPanel("files")}
+                          >
+                            {t("workspace.action.files")}
+                          </button>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={state.settings.workspace.bottomPanel === "snippets"}
+                            className={`workspace-bottom-panel__tab ${
+                              state.settings.workspace.bottomPanel === "snippets" ? "is-active" : ""
+                            }`}
+                            onClick={() => void controller.selectBottomPanel("snippets")}
+                          >
+                            {t("workspace.action.snippets")}
+                          </button>
+                        </div>
+                        <div className="workspace-bottom-panel__content">
+                          {state.settings.workspace.bottomPanel === "files" ? (
+                            <FilePanel
+                              currentPath={activeSession?.currentPath ?? null}
+                              entries={state.remoteEntries}
+                              rootEntries={state.remoteRootEntries}
+                              layoutScale={workspaceScale}
+                              loading={state.remoteEntriesLoading}
+                              onOpenDirectory={controller.openRemoteDirectory}
+                              onGoParent={controller.goRemoteParent}
+                              onRefresh={controller.refreshRemoteEntriesForActiveSession}
+                              onUpload={controller.uploadFileToCurrentDirectory}
+                              onCreateDirectory={controller.createRemoteDirectory}
+                              onDownload={controller.downloadRemoteFile}
+                              onRename={controller.renameRemoteEntry}
+                              onDelete={controller.deleteRemoteEntry}
+                            />
+                          ) : (
+                            <SnippetPanel controller={controller} />
+                          )}
+                        </div>
                       </section>
                     </>
                   ) : null}
@@ -339,15 +369,14 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
 
               {sidePanelVisible ? (
                 <aside className="workspace-right">
-                  {state.settings.workspace.rightPanel === "transfers" ? (
+                  {state.settings.workspace.sidePanel === "transfers" ? (
                     <TransferPanel
                       tasks={state.transfers}
                       onRetry={controller.retryTransfer}
                       onClearCompleted={controller.clearCompletedTransfers}
                     />
                   ) : null}
-                  {state.settings.workspace.rightPanel === "snippets" ? <SnippetPanel controller={controller} /> : null}
-                  {state.settings.workspace.rightPanel === "activity" ? (
+                  {state.settings.workspace.sidePanel === "activity" ? (
                     <section className="panel">
                       <header className="panel__header">
                         <div>
@@ -392,16 +421,10 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
 
             <footer className="workspace-footer">
               <div className="button-row">
-                <button className="ghost-button" onClick={() => void controller.updateRightPanel("files")} type="button">
-                  {t("workspace.action.files")}
-                </button>
-                <button className="ghost-button" onClick={() => void controller.updateRightPanel("snippets")} type="button">
-                  {t("workspace.action.snippets")}
-                </button>
-                <button className="ghost-button" onClick={() => void controller.updateRightPanel("activity")} type="button">
+                <button className="ghost-button" onClick={() => void controller.selectSidePanel("activity")} type="button">
                   {t("workspace.action.activity")}
                 </button>
-                <button className="ghost-button" onClick={() => void controller.updateRightPanel("transfers")} type="button">
+                <button className="ghost-button" onClick={() => void controller.selectSidePanel("transfers")} type="button">
                   {t("workspace.action.transfers")}
                 </button>
               </div>
@@ -420,7 +443,7 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
   );
 
   return (
-    <div className={`workspace-stage workspace-stage--${state.settings.terminal.theme}`} ref={stageRef}>
+    <div className="workspace-stage" ref={stageRef} style={themeDefinition.variables as CSSProperties}>
       {workspaceScale < 1 ? (
         <div
           className="workspace-stage__viewport workspace-stage__viewport--scaled"

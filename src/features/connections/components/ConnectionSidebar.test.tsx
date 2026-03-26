@@ -117,9 +117,11 @@ function createController(overrides?: Partial<WorkspaceController>): WorkspaceCo
     deleteSnippet: async () => undefined,
     runSnippetOnActiveSession: async () => undefined,
     saveSettings: async () => undefined,
-    updateRightPanel: async () => undefined,
-    toggleRightPanel: async () => undefined,
-    toggleTheme: async () => undefined,
+    selectBottomPanel: async () => undefined,
+    toggleBottomPanel: async () => undefined,
+    selectSidePanel: async () => undefined,
+    toggleSidePanel: async () => undefined,
+    updateTheme: async () => undefined,
     resetSettings: async () => undefined,
   };
 

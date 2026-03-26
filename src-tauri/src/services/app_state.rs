@@ -624,6 +624,10 @@ impl AppStore {
         } else {
             PersistedState::default()
         };
+        let persisted = PersistedState {
+            settings: persisted.settings.normalize(),
+            ..persisted
+        };
 
         Ok(Self {
             storage_path,
@@ -746,7 +750,7 @@ impl AppStore {
     }
 
     fn save_settings(&mut self, settings: crate::models::AppSettings) -> AppResult<()> {
-        self.persisted.settings = settings;
+        self.persisted.settings = settings.normalize();
         self.record_activity("已保存工作台设置。".into());
         self.persist()
     }
@@ -1539,6 +1543,47 @@ mod tests {
         let store = AppStore::load(dir).expect("legacy state should load");
 
         assert!(store.persisted.trusted_hosts.is_empty());
+        assert_eq!(store.persisted.settings.terminal.theme, "midnight");
+        assert_eq!(store.persisted.settings.workspace.bottom_panel, "files");
+        assert!(store.persisted.settings.workspace.bottom_panel_visible);
+        assert_eq!(store.persisted.settings.workspace.side_panel, "activity");
+        assert!(store.persisted.settings.workspace.side_panel_visible);
+    }
+
+    #[test]
+    fn app_store_normalizes_legacy_snippet_panel_and_unknown_theme() {
+        let dir = temp_config_dir("legacy-theme-bottom-panel");
+        fs::write(
+            dir.join("workspace-state.json"),
+            r#"{
+              "connections": [],
+              "snippets": [],
+              "settings": {
+                "terminal": {
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 14,
+                  "lineHeight": 1.6,
+                  "theme": "aurora",
+                  "cursorStyle": "block",
+                  "copyOnSelect": false
+                },
+                "workspace": {
+                  "sidebarCollapsed": false,
+                  "rightPanel": "snippets",
+                  "rightPanelVisible": true
+                }
+              }
+            }"#,
+        )
+        .expect("legacy state should be written");
+
+        let store = AppStore::load(dir).expect("legacy state should load");
+
+        assert_eq!(store.persisted.settings.terminal.theme, "midnight");
+        assert_eq!(store.persisted.settings.workspace.bottom_panel, "snippets");
+        assert!(store.persisted.settings.workspace.bottom_panel_visible);
+        assert_eq!(store.persisted.settings.workspace.side_panel, "activity");
+        assert!(store.persisted.settings.workspace.side_panel_visible);
     }
 
     #[test]

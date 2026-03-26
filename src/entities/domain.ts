@@ -5,7 +5,9 @@ export type ExtensionKind =
   | "terminalAction"
   | "commandPaletteItem"
   | "connectionProtocol";
-export type RightPanelId = "files" | "snippets" | "activity" | "transfers";
+export type ThemeId = "midnight" | "sand" | "jade" | "tide" | "graphite";
+export type BottomPanelId = "files" | "snippets";
+export type SidePanelId = "activity" | "transfers";
 
 export interface ConnectionProfile {
   id: string;
@@ -150,15 +152,17 @@ export interface TerminalPreferences {
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
-  theme: "midnight" | "sand";
+  theme: ThemeId;
   cursorStyle: "block" | "line";
   copyOnSelect: boolean;
 }
 
 export interface WorkspaceLayout {
   sidebarCollapsed: boolean;
-  rightPanel: RightPanelId;
-  rightPanelVisible: boolean;
+  bottomPanel: BottomPanelId;
+  bottomPanelVisible: boolean;
+  sidePanel: SidePanelId;
+  sidePanelVisible: boolean;
 }
 
 export interface AppSettings {

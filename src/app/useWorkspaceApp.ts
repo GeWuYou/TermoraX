@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppSettings,
+  BottomPanelId,
   BootstrapState,
   CommandSnippet,
   ConnectionDuplicateWarning,
@@ -12,13 +13,15 @@ import type {
   HostFingerprintInspection,
   PendingHostVerification,
   RemoteFileEntry,
-  RightPanelId,
   SessionEvent,
   SessionTab,
+  SidePanelId,
+  ThemeId,
   TransferTask,
 } from "../entities/domain";
 import { desktopClient } from "../integrations/tauri/client";
 import { defaultAppSettings } from "../features/settings/model/defaults";
+import { normalizeAppSettings } from "../features/settings/model/themes";
 import {
   findConnectionDuplicate,
   hasValidationErrors,
@@ -81,6 +84,13 @@ function deriveNextSelection(snapshot: BootstrapState, currentConnectionId: stri
   return { selectedConnectionId, activeSessionId };
 }
 
+function normalizeBootstrapState(snapshot: BootstrapState): BootstrapState {
+  return {
+    ...snapshot,
+    settings: normalizeAppSettings(snapshot.settings),
+  };
+}
+
 function parseSessionTimestamp(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -138,7 +148,7 @@ export function useWorkspaceApp() {
   const activeSessionCurrentPath =
     state.sessions.find((item) => item.id === state.activeSessionId)?.currentPath ?? null;
   const filesPanelVisible =
-    state.settings.workspace.rightPanelVisible && state.settings.workspace.rightPanel === "files";
+    state.settings.workspace.bottomPanelVisible && state.settings.workspace.bottomPanel === "files";
 
   const refreshRemoteEntries = useCallback(async (sessionId: string) => {
     const requestId = remoteEntriesRequestRef.current + 1;
@@ -232,9 +242,10 @@ export function useWorkspaceApp() {
   function applySnapshot(snapshot: BootstrapState) {
     startTransition(() => {
       setState((current) => {
+        const normalizedSnapshot = normalizeBootstrapState(snapshot);
         const mergedSnapshot = {
-          ...snapshot,
-          sessions: mergeSnapshotSessions(current.sessions, snapshot.sessions),
+          ...normalizedSnapshot,
+          sessions: mergeSnapshotSessions(current.sessions, normalizedSnapshot.sessions),
         };
 
         return {
@@ -678,38 +689,61 @@ export function useWorkspaceApp() {
       await runMutation(() => desktopClient.runSnippetOnSession(state.activeSessionId as string, snippetId));
     },
     async saveSettings(settings: AppSettings) {
-      await runMutation(() => desktopClient.saveSettings(settings));
+      await runMutation(() => desktopClient.saveSettings(normalizeAppSettings(settings)));
     },
-    async updateRightPanel(rightPanel: RightPanelId) {
+    async selectBottomPanel(bottomPanel: BottomPanelId) {
       await runMutation(() =>
         desktopClient.saveSettings({
           ...state.settings,
           workspace: {
             ...state.settings.workspace,
-            rightPanel,
-            rightPanelVisible: true,
+            bottomPanel,
+            bottomPanelVisible: true,
           },
         }),
       );
     },
-    async toggleRightPanel() {
+    async toggleBottomPanel() {
       await runMutation(() =>
         desktopClient.saveSettings({
           ...state.settings,
           workspace: {
             ...state.settings.workspace,
-            rightPanelVisible: !state.settings.workspace.rightPanelVisible,
+            bottomPanelVisible: !state.settings.workspace.bottomPanelVisible,
           },
         }),
       );
     },
-    async toggleTheme() {
+    async selectSidePanel(sidePanel: SidePanelId) {
+      await runMutation(() =>
+        desktopClient.saveSettings({
+          ...state.settings,
+          workspace: {
+            ...state.settings.workspace,
+            sidePanel,
+            sidePanelVisible: true,
+          },
+        }),
+      );
+    },
+    async toggleSidePanel() {
+      await runMutation(() =>
+        desktopClient.saveSettings({
+          ...state.settings,
+          workspace: {
+            ...state.settings.workspace,
+            sidePanelVisible: !state.settings.workspace.sidePanelVisible,
+          },
+        }),
+      );
+    },
+    async updateTheme(theme: ThemeId) {
       await runMutation(() =>
         desktopClient.saveSettings({
           ...state.settings,
           terminal: {
             ...state.settings.terminal,
-            theme: state.settings.terminal.theme === "midnight" ? "sand" : "midnight",
+            theme,
           },
         }),
       );

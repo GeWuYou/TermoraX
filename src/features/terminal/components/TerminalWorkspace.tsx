@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import type { WorkspaceController } from "../../../app/useWorkspaceApp";
+import type { ThemeId } from "../../../entities/domain";
+import { getThemeDefinition, listThemeDefinitions } from "../../settings/model/themes";
 import { StatusBadge } from "../../../shared/components/StatusBadge";
 import { Panel } from "../../../shared/components/Panel";
 import { t } from "../../../shared/i18n";
@@ -23,6 +25,7 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
   const { state, activeSession } = controller;
   const hasOtherSessions = state.sessions.length > 1;
   const hostActionsRef = useRef<TerminalHostActions | null>(null);
+  const themeOptions = listThemeDefinitions();
   // Only surface terminal dimensions when both axes are available.
   const sessionSize = useMemo(() => {
     const cols = activeSession?.terminalCols;
@@ -58,11 +61,25 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
       subtitle={activeSession ? activeSession.title : t("files.noSession")}
       actions={
         <div className="button-row">
-          <button className="ghost-button" onClick={() => void controller.toggleTheme()} type="button">
-            {t("terminal.toggleTheme")}
+          <label className="theme-select">
+            <span className="sr-only">{t("terminal.themeLabel")}</span>
+            <select
+              aria-label={t("terminal.themeLabel")}
+              value={state.settings.terminal.theme}
+              onChange={(event) => void controller.updateTheme(event.target.value as ThemeId)}
+            >
+              {themeOptions.map((theme) => (
+                <option key={theme.id} value={theme.id}>
+                  {t(theme.labelKey)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="ghost-button" onClick={() => void controller.toggleBottomPanel()} type="button">
+            {t("terminal.toggleBottomPanel")}
           </button>
-          <button className="ghost-button" onClick={() => void controller.toggleRightPanel()} type="button">
-            {t("terminal.togglePanel")}
+          <button className="ghost-button" onClick={() => void controller.toggleSidePanel()} type="button">
+            {t("terminal.toggleSidePanel")}
           </button>
         </div>
       }
@@ -173,23 +190,10 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
   );
 }
 
-type TerminalTheme = "midnight" | "sand";
-
-const terminalColorPalettes: Record<TerminalTheme, { background: string; foreground: string }> = {
-  midnight: {
-    background: "#0c1014",
-    foreground: "#dce8d8",
-  },
-  sand: {
-    background: "#efe7d9",
-    foreground: "#2a2418",
-  },
-};
-
 interface TerminalHostProps {
   sessionId: string;
   output: string;
-  theme: TerminalTheme;
+  theme: ThemeId;
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
@@ -218,6 +222,7 @@ export function TerminalHost({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const terminalTheme = getThemeDefinition(theme).terminal;
   const lastOutputRef = useRef<string>("");
   const lastResizeRef = useRef<string>("");
   const shouldScrollToTopRef = useRef(true);
@@ -283,7 +288,7 @@ export function TerminalHost({
       cursorStyle: cursorStyle === "line" ? "bar" : "block",
       disableStdin: false,
       scrollback: 1000,
-      theme: terminalColorPalettes[theme],
+      theme: terminalTheme,
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -357,7 +362,7 @@ export function TerminalHost({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [cursorStyle, fontFamily, fontSize, lineHeight, theme]);
+  }, [cursorStyle, fontFamily, fontSize, lineHeight, terminalTheme]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -365,8 +370,8 @@ export function TerminalHost({
       return;
     }
 
-    terminal.options.theme = terminalColorPalettes[theme];
-  }, [theme]);
+    terminal.options.theme = terminalTheme;
+  }, [terminalTheme]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
