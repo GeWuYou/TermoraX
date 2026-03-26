@@ -22,6 +22,7 @@ use crate::{
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_KEEPALIVE_INTERVAL_SECS: u64 = 15;
 const DEFAULT_KEEPALIVE_MAX: usize = 3;
+const DEFAULT_CLOSE_TIMEOUT_SECS: u64 = 2;
 const DEFAULT_TERM_TYPE: &str = "xterm-256color";
 
 /// Supported SSH authentication methods at the service boundary.
@@ -393,14 +394,20 @@ impl RusshSshService {
         connection: &mut client::Handle<TermoraXClientHandler>,
         writer: &ChannelWriteHalf<client::Msg>,
     ) -> AppResult<()> {
-        writer
-            .close()
+        let close_timeout = Duration::from_secs(DEFAULT_CLOSE_TIMEOUT_SECS);
+
+        tokio::time::timeout(close_timeout, writer.close())
             .await
+            .map_err(|_| AppError::new("ssh_close_timeout", "关闭 SSH 会话超时"))?
             .map_err(|error| classify_ssh_error("ssh_close_failed", "关闭 SSH 会话失败", error))?;
-        connection
-            .disconnect(Disconnect::ByApplication, "Closing TermoraX session", "en-US")
-            .await
-            .map_err(|error| classify_ssh_error("ssh_disconnect_failed", "断开 SSH 连接失败", error))?;
+
+        tokio::time::timeout(
+            close_timeout,
+            connection.disconnect(Disconnect::ByApplication, "Closing TermoraX session", "en-US"),
+        )
+        .await
+        .map_err(|_| AppError::new("ssh_disconnect_timeout", "断开 SSH 连接超时"))?
+        .map_err(|error| classify_ssh_error("ssh_disconnect_failed", "断开 SSH 连接失败", error))?;
         Ok(())
     }
 
@@ -624,6 +631,11 @@ mod tests {
 
         assert_eq!(config.inactivity_timeout, None);
         assert_eq!(config.keepalive_interval, Some(Duration::from_secs(15)));
+    }
+
+    #[test]
+    fn close_timeout_is_short_for_ui_safe_cleanup() {
+        assert_eq!(Duration::from_secs(super::DEFAULT_CLOSE_TIMEOUT_SECS), Duration::from_secs(2));
     }
 
     #[test]

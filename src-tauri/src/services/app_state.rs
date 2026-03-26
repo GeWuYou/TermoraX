@@ -35,10 +35,21 @@ impl LiveSessionRuntime {
         tauri::async_runtime::block_on(ssh::default_ssh_service().resize_shell(&self.writer, cols, rows))
     }
 
-    fn close(mut self) -> AppResult<()> {
-        tauri::async_runtime::block_on(
-            ssh::default_ssh_service().close_shell(&mut self.connection, &self.writer),
-        )
+    fn close_detached(mut self, context: &'static str) {
+        tauri::async_runtime::spawn(async move {
+            debug_log("runtime_close.start", format!("context={context}"));
+            let result = ssh::default_ssh_service()
+                .close_shell(&mut self.connection, &self.writer)
+                .await;
+
+            match result {
+                Ok(()) => debug_log("runtime_close.done", format!("context={context}")),
+                Err(error) => debug_log(
+                    "runtime_close.failed",
+                    format!("context={context} code={} message={}", error.code, error.message),
+                ),
+            }
+        });
     }
 }
 
@@ -211,7 +222,7 @@ impl AppState {
         };
 
         if let Some(runtime) = runtime {
-            runtime.close()?;
+            runtime.close_detached("close_session");
         }
 
         self.snapshot()
@@ -219,6 +230,7 @@ impl AppState {
 
     /// Reconnects an existing live session while keeping the current tab identifier.
     pub fn reconnect_session(&self, app_handle: &AppHandle, session_id: &str) -> AppResult<BootstrapState> {
+        debug_log("reconnect_session.start", format!("session_id={session_id}"));
         let (connection, trusted_host, cols, rows, previous_runtime) = {
             let mut store = self.store.lock()?;
             let connection = store.find_connection_for_session(session_id)?.clone();
@@ -231,31 +243,50 @@ impl AppState {
                         "当前主机尚未信任，请先确认并信任主机指纹",
                     )
                 })?;
-            let session = store
-                .sessions
-                .iter()
-                .find(|item| item.id == session_id)
-                .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?;
+            let (cols, rows) = {
+                let session = store
+                    .sessions
+                    .iter()
+                    .find(|item| item.id == session_id)
+                    .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?;
+                (session.terminal_cols, session.terminal_rows)
+            };
+
+            store.bump_reader_generation(session_id);
 
             (
                 connection,
                 trusted_host,
-                session.terminal_cols,
-                session.terminal_rows,
+                cols,
+                rows,
                 store.runtimes.remove(session_id),
             )
         };
 
         if let Some(runtime) = previous_runtime {
-            runtime.close()?;
+            debug_log(
+                "reconnect_session.close_previous.schedule",
+                format!("session_id={session_id}"),
+            );
+            runtime.close_detached("reconnect_session");
+        } else {
+            debug_log(
+                "reconnect_session.close_previous.skip",
+                format!("session_id={session_id}"),
+            );
         }
 
+        debug_log(
+            "reconnect_session.open_new.start",
+            format!("session_id={session_id} cols={cols} rows={rows}"),
+        );
         let opened = tauri::async_runtime::block_on(ssh::default_ssh_service().open_shell_session(
             &connection,
             &trusted_host,
             cols,
             rows,
         ))?;
+        debug_log("reconnect_session.open_new.done", format!("session_id={session_id}"));
         let reader_generation = {
             let mut store = self.store.lock()?;
             store.reconnect_live_session(session_id, &connection, opened.connection, opened.writer)?;
@@ -267,6 +298,10 @@ impl AppState {
             session_id.to_string(),
             reader_generation,
             opened.reader,
+        );
+        debug_log(
+            "reconnect_session.done",
+            format!("session_id={session_id} reader_generation={reader_generation}"),
         );
         self.snapshot()
     }
@@ -286,7 +321,7 @@ impl AppState {
         };
 
         for runtime in runtimes {
-            runtime.close()?;
+            runtime.close_detached("close_other_sessions");
         }
 
         self.snapshot()
