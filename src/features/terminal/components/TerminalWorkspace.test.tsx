@@ -10,7 +10,36 @@ import { readClipboardText, writeClipboardText } from "../../../shared/lib/clipb
 const terminalOnDataHandlers: Array<(data: string) => void> = [];
 const terminalKeyHandlers: Array<(event: KeyboardEvent) => boolean> = [];
 const createdTerminals: Array<{ dispose: ReturnType<typeof vi.fn> }> = [];
+const requestAnimationFrameMock = vi.fn<(callback: FrameRequestCallback) => number>((callback) => {
+  callback(0);
+  return 1;
+});
+const cancelAnimationFrameMock = vi.fn();
 let terminalSelection = "selected-output";
+
+class MockResizeObserver {
+  observe() {}
+  disconnect() {}
+}
+
+vi.stubGlobal("ResizeObserver", MockResizeObserver);
+vi.stubGlobal("requestAnimationFrame", requestAnimationFrameMock);
+vi.stubGlobal("cancelAnimationFrame", cancelAnimationFrameMock);
+
+Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+  configurable: true,
+  get() {
+    return 960;
+  },
+});
+
+Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+  configurable: true,
+  get() {
+    return 640;
+  },
+});
+
 vi.mock("../../../shared/lib/clipboard", () => ({
   writeClipboardText: vi.fn<(text: string) => Promise<boolean>>().mockResolvedValue(true),
   readClipboardText: vi.fn<() => Promise<string>>().mockResolvedValue("pasted-command"),
@@ -361,5 +390,32 @@ describe("TerminalWorkspace", () => {
     expect(
       screen.getByText("从左侧连接栏打开一个连接，即可开始远程终端工作区会话。"),
     ).toBeInTheDocument();
+  });
+
+  test("reports the fitted size on mount but does not resize again for output-only rerenders", async () => {
+    const resizeSession = vi.fn();
+    const controller = createController(sampleSession, { resizeSession });
+    const { rerender } = render(<TerminalWorkspace controller={controller} />);
+
+    await waitFor(() => {
+      expect(resizeSession).toHaveBeenCalledTimes(1);
+      expect(resizeSession).toHaveBeenCalledWith(sampleSession.id, 120, 40);
+    });
+
+    const nextController = createController(
+      {
+        ...sampleSession,
+        lastOutput: "Prompt>\r\nls\r\napp.log",
+      },
+      {
+        resizeSession,
+      },
+    );
+
+    rerender(<TerminalWorkspace controller={nextController} />);
+
+    await waitFor(() => {
+      expect(resizeSession).toHaveBeenCalledTimes(1);
+    });
   });
 });

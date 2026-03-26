@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionTab } from "../entities/domain";
-import { mergeSnapshotSessions } from "./useWorkspaceApp";
+import { mergeSnapshotSessions, updateSessionTerminalSize } from "./useWorkspaceApp";
 
 function session(overrides?: Partial<SessionTab>): SessionTab {
   return {
@@ -63,5 +63,29 @@ describe("mergeSnapshotSessions", () => {
     expect(merged[0].status).toBe("connected");
     expect(merged[0].currentPath).toBe("/");
     expect(merged[0].lastOutput).toContain("真实 SSH 终端已恢复");
+  });
+});
+
+describe("updateSessionTerminalSize", () => {
+  it("updates only the matching session dimensions", () => {
+    const sessions = [
+      session({ id: "session-1", terminalCols: 120, terminalRows: 32 }),
+      session({ id: "session-2", terminalCols: 80, terminalRows: 24 }),
+    ];
+
+    const updated = updateSessionTerminalSize(sessions, "session-2", 160, 48);
+
+    expect(updated[0]?.terminalCols).toBe(120);
+    expect(updated[0]?.terminalRows).toBe(32);
+    expect(updated[1]?.terminalCols).toBe(160);
+    expect(updated[1]?.terminalRows).toBe(48);
+  });
+
+  it("returns the original list when the size is unchanged", () => {
+    const sessions = [session({ terminalCols: 120, terminalRows: 32 })];
+
+    const updated = updateSessionTerminalSize(sessions, "session-1", 120, 32);
+
+    expect(updated).toBe(sessions);
   });
 });

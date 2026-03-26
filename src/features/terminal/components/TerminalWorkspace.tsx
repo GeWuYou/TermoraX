@@ -209,14 +209,17 @@ interface TerminalHostProps {
 }
 
 const INITIAL_VIEWPORT_LOCK_MS = 1200;
+const MAX_PATH_SCAN_CHARS = 8192;
 
 function deriveDisplayedTerminalPath(output: string, fallbackPath: string | null): string {
-  const pathFromOsc = extractOsc7Path(output);
+  const recentOutput =
+    output.length > MAX_PATH_SCAN_CHARS ? output.slice(-MAX_PATH_SCAN_CHARS) : output;
+  const pathFromOsc = extractOsc7Path(recentOutput);
   if (pathFromOsc) {
     return pathFromOsc;
   }
 
-  const strippedOutput = stripTerminalControlSequences(output);
+  const strippedOutput = stripTerminalControlSequences(recentOutput);
   const promptLines = strippedOutput
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
@@ -280,9 +283,11 @@ export function TerminalHost({
   const lastResizeRef = useRef<string>("");
   const shouldScrollToTopRef = useRef(true);
   const initialViewportLockTimerRef = useRef<number | null>(null);
+  const fitFrameRef = useRef<number | null>(null);
   const inputHandlerRef = useRef(onInput);
   const resizeHandlerRef = useRef(onResize);
   const clearHandlerRef = useRef(onClearRequest);
+  const scheduleFitRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     inputHandlerRef.current = onInput;
@@ -321,9 +326,14 @@ export function TerminalHost({
 
   useEffect(() => {
     lastOutputRef.current = "";
+    lastResizeRef.current = "";
     shouldScrollToTopRef.current = true;
     if (initialViewportLockTimerRef.current != null && typeof window !== "undefined") {
       window.clearTimeout(initialViewportLockTimerRef.current);
+    }
+    if (fitFrameRef.current != null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(fitFrameRef.current);
+      fitFrameRef.current = null;
     }
   }, [sessionId]);
 
@@ -346,7 +356,6 @@ export function TerminalHost({
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(container);
-    fitAddon.fit();
     terminal.focus();
 
     terminalRef.current = terminal;
@@ -378,15 +387,67 @@ export function TerminalHost({
       return true;
     });
 
-    const handleResize = () => {
-      fitAddon.fit();
-      const sizeKey = `${terminal.cols}x${terminal.rows}`;
+    const runFit = () => {
+      const currentTerminal = terminalRef.current;
+      const currentFitAddon = fitAddonRef.current;
+      const currentContainer = containerRef.current;
+      if (!currentTerminal || !currentFitAddon || !currentContainer) {
+        return;
+      }
 
-      if (terminal.cols > 0 && terminal.rows > 0 && sizeKey !== lastResizeRef.current) {
+      if (currentContainer.clientWidth <= 0 || currentContainer.clientHeight <= 0) {
+        return;
+      }
+
+      currentFitAddon.fit();
+      const sizeKey = `${currentTerminal.cols}x${currentTerminal.rows}`;
+
+      if (currentTerminal.cols > 0 && currentTerminal.rows > 0 && sizeKey !== lastResizeRef.current) {
         lastResizeRef.current = sizeKey;
-        resizeHandlerRef.current?.(terminal.cols, terminal.rows);
+        resizeHandlerRef.current?.(currentTerminal.cols, currentTerminal.rows);
       }
     };
+
+    const scheduleFit = () => {
+      if (typeof window === "undefined") {
+        runFit();
+        return;
+      }
+
+      if (fitFrameRef.current != null) {
+        return;
+      }
+
+      fitFrameRef.current = window.requestAnimationFrame(() => {
+        fitFrameRef.current = null;
+        runFit();
+      });
+    };
+
+    scheduleFitRef.current = scheduleFit;
+
+    const handleResize = () => {
+      scheduleFit();
+    };
+
+    const disconnectResizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : (() => {
+            const observer = new ResizeObserver(() => {
+              scheduleFit();
+            });
+            observer.observe(container);
+            return () => {
+              observer.disconnect();
+            };
+          })();
+
+    if (!disconnectResizeObserver && typeof window !== "undefined") {
+      window.addEventListener("resize", handleResize);
+    }
+
+    scheduleFit();
 
     const handleWheel = (event: WheelEvent) => {
       if (event.deltaY === 0) {
@@ -399,14 +460,20 @@ export function TerminalHost({
       event.preventDefault();
     };
 
-    window.addEventListener("resize", handleResize);
     container.addEventListener("wheel", handleWheel, { passive: false });
-    handleResize();
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      if (!disconnectResizeObserver && typeof window !== "undefined") {
+        window.removeEventListener("resize", handleResize);
+      }
+      disconnectResizeObserver?.();
       container.removeEventListener("wheel", handleWheel);
-      if (initialViewportLockTimerRef.current != null) {
+      if (fitFrameRef.current != null && typeof window !== "undefined") {
+        window.cancelAnimationFrame(fitFrameRef.current);
+        fitFrameRef.current = null;
+      }
+      scheduleFitRef.current = null;
+      if (initialViewportLockTimerRef.current != null && typeof window !== "undefined") {
         window.clearTimeout(initialViewportLockTimerRef.current);
         initialViewportLockTimerRef.current = null;
       }
@@ -424,7 +491,7 @@ export function TerminalHost({
     }
 
     terminal.options.theme = terminalTheme;
-    fitAddonRef.current?.fit();
+    scheduleFitRef.current?.();
   }, [terminalTheme]);
 
   useEffect(() => {
@@ -436,7 +503,7 @@ export function TerminalHost({
     terminal.options.fontSize = fontSize;
     terminal.options.lineHeight = lineHeight;
     terminal.options.cursorStyle = cursorStyle === "line" ? "bar" : "block";
-    fitAddonRef.current?.fit();
+    scheduleFitRef.current?.();
   }, [cursorStyle, fontFamily, fontSize, lineHeight]);
 
   useEffect(() => {
@@ -465,7 +532,6 @@ export function TerminalHost({
           }, INITIAL_VIEWPORT_LOCK_MS);
         }
       }
-      fitAddonRef.current?.fit();
     };
 
     if (didResetOutput) {

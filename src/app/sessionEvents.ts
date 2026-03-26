@@ -1,5 +1,20 @@
 import type { SessionEvent, SessionTab } from "../entities/domain";
 
+const MAX_SESSION_OUTPUT_CHARS = 200_000;
+
+function appendSessionOutput(base: string, addition: string): string {
+  if (!addition) {
+    return base;
+  }
+
+  const next = `${base}${addition}`;
+  if (next.length <= MAX_SESSION_OUTPUT_CHARS) {
+    return next;
+  }
+
+  return next.slice(-MAX_SESSION_OUTPUT_CHARS);
+}
+
 /**
  * Merges backend-driven session events into the in-memory tab list.
  */
@@ -16,7 +31,7 @@ export function mergeSessionEvent(sessions: SessionTab[], event: SessionEvent): 
     if (event.kind === "output") {
       return {
         ...session,
-        lastOutput: `${session.lastOutput}${event.chunk}`,
+        lastOutput: appendSessionOutput(session.lastOutput, event.chunk),
         updatedAt: event.occurredAt,
       };
     }
@@ -28,7 +43,7 @@ export function mergeSessionEvent(sessions: SessionTab[], event: SessionEvent): 
     } satisfies SessionTab;
 
     if (event.message) {
-      next.lastOutput = `${session.lastOutput}${event.message}`;
+      next.lastOutput = appendSessionOutput(session.lastOutput, event.message);
     }
 
     return next;

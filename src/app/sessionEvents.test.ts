@@ -50,4 +50,20 @@ describe("mergeSessionEvent", () => {
     expect(updated[0].lastOutput).toBe("ready\r\nclosed");
     expect(updated[0].updatedAt).toBe("3");
   });
+
+  it("keeps only the most recent output suffix when the buffer grows too large", () => {
+    const largeChunk = "a".repeat(250_000);
+    const event: SessionEvent = {
+      kind: "output",
+      sessionId: "session-1",
+      stream: "stdout",
+      chunk: largeChunk,
+      occurredAt: "4",
+    };
+
+    const updated = mergeSessionEvent([session()], event);
+
+    expect(updated[0].lastOutput.length).toBe(200_000);
+    expect(updated[0].lastOutput.endsWith("a".repeat(32))).toBe(true);
+  });
 });

@@ -3,20 +3,21 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf, client};
+use russh::{client, ChannelMsg, ChannelReadHalf, ChannelWriteHalf};
 use tauri::{AppHandle, Emitter};
 
 use crate::{
     error::{AppError, AppResult},
-    events::{SESSION_EVENT, SessionOutputEventPayload, SessionStatusEventPayload},
+    events::{SessionOutputEventPayload, SessionStatusEventPayload, SESSION_EVENT},
     extensions::builtin_extensions,
     models::{
-        ActivityEntry, BootstrapState, CommandSnippet, ConnectionExportResult, ConnectionImportResult,
-        ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, HostFingerprintInspection,
-        PersistedState, RemoteDirectoryListing, RemoteFileEntry, SessionTab, TransferTask, TrustedHost,
+        ActivityEntry, BootstrapState, CommandSnippet, ConnectionExportResult,
+        ConnectionImportResult, ConnectionProfile, ConnectionTestResult,
+        ConnectionValidationResult, HostFingerprintInspection, PersistedState,
+        RemoteDirectoryListing, RemoteFileEntry, SessionTab, TransferTask, TrustedHost,
     },
     services::{connections, sessions, sftp, ssh},
 };
@@ -32,7 +33,11 @@ impl LiveSessionRuntime {
     }
 
     fn resize(&self, cols: u16, rows: u16) -> AppResult<()> {
-        tauri::async_runtime::block_on(ssh::default_ssh_service().resize_shell(&self.writer, cols, rows))
+        tauri::async_runtime::block_on(ssh::default_ssh_service().resize_shell(
+            &self.writer,
+            cols,
+            rows,
+        ))
     }
 
     fn close_detached(mut self, context: &'static str) {
@@ -46,7 +51,10 @@ impl LiveSessionRuntime {
                 Ok(()) => debug_log("runtime_close.done", format!("context={context}")),
                 Err(error) => debug_log(
                     "runtime_close.failed",
-                    format!("context={context} code={} message={}", error.code, error.message),
+                    format!(
+                        "context={context} code={} message={}",
+                        error.code, error.message
+                    ),
                 ),
             }
         });
@@ -57,6 +65,9 @@ enum SessionUiEvent {
     Output(SessionOutputEventPayload),
     Status(SessionStatusEventPayload),
 }
+
+const SESSION_EVENT_FLUSH_DELAY_MS: u64 = 33;
+const MAX_BATCHED_SESSION_OUTPUT_CHARS: usize = 16 * 1024;
 
 /// Shared backend state managed by Tauri.
 pub struct AppState {
@@ -86,7 +97,10 @@ impl AppState {
     }
 
     /// Runs the current SSH preflight validation flow without persisting the profile.
-    pub fn test_connection_profile(&self, profile: ConnectionProfile) -> AppResult<ConnectionTestResult> {
+    pub fn test_connection_profile(
+        &self,
+        profile: ConnectionProfile,
+    ) -> AppResult<ConnectionTestResult> {
         let store = self.store.lock()?;
         store.test_connection_profile(profile)
     }
@@ -143,7 +157,10 @@ impl AppState {
     }
 
     /// Inspects the current SSH host fingerprint for a saved connection without opening a shell.
-    pub fn inspect_connection_host(&self, connection_id: &str) -> AppResult<HostFingerprintInspection> {
+    pub fn inspect_connection_host(
+        &self,
+        connection_id: &str,
+    ) -> AppResult<HostFingerprintInspection> {
         let (connection, trusted_host) = {
             let store = self.store.lock()?;
             let connection = store.find_connection(connection_id)?.clone();
@@ -153,7 +170,8 @@ impl AppState {
 
             (connection, trusted_host)
         };
-        let inspected_host = tauri::async_runtime::block_on(ssh::default_ssh_service().inspect_host(&connection))?;
+        let inspected_host =
+            tauri::async_runtime::block_on(ssh::default_ssh_service().inspect_host(&connection))?;
 
         Ok(build_host_fingerprint_inspection(
             &connection,
@@ -172,14 +190,19 @@ impl AppState {
             let store = self.store.lock()?;
             store.find_connection(connection_id)?.clone()
         };
-        let inspected_host = tauri::async_runtime::block_on(ssh::default_ssh_service().inspect_host(&connection))?;
+        let inspected_host =
+            tauri::async_runtime::block_on(ssh::default_ssh_service().inspect_host(&connection))?;
         ensure_trust_request_matches(fingerprint, &inspected_host)?;
 
         let mut store = self.store.lock()?;
         store.trust_connection_host(&connection, &inspected_host)
     }
 
-    pub fn open_session(&self, app_handle: &AppHandle, connection_id: &str) -> AppResult<BootstrapState> {
+    pub fn open_session(
+        &self,
+        app_handle: &AppHandle,
+        connection_id: &str,
+    ) -> AppResult<BootstrapState> {
         let (connection, trusted_host) = {
             let store = self.store.lock()?;
             let connection = store.find_connection(connection_id)?.clone();
@@ -196,22 +219,27 @@ impl AppState {
             (connection, trusted_host)
         };
 
-        let opened = tauri::async_runtime::block_on(
-            ssh::default_ssh_service().open_shell_session(
+        let opened =
+            tauri::async_runtime::block_on(ssh::default_ssh_service().open_shell_session(
                 &connection,
                 &trusted_host,
                 sessions::DEFAULT_TERMINAL_COLS,
                 sessions::DEFAULT_TERMINAL_ROWS,
-            ),
-        )?;
+            ))?;
         let (session_id, reader_generation) = {
             let mut store = self.store.lock()?;
-            let session_id = store.open_live_session(&connection, opened.connection, opened.writer)?;
+            let session_id =
+                store.open_live_session(&connection, opened.connection, opened.writer)?;
             let reader_generation = store.current_reader_generation(&session_id)?;
             (session_id, reader_generation)
         };
 
-        self.spawn_session_reader(app_handle.clone(), session_id, reader_generation, opened.reader);
+        self.spawn_session_reader(
+            app_handle.clone(),
+            session_id,
+            reader_generation,
+            opened.reader,
+        );
         self.snapshot()
     }
 
@@ -229,8 +257,15 @@ impl AppState {
     }
 
     /// Reconnects an existing live session while keeping the current tab identifier.
-    pub fn reconnect_session(&self, app_handle: &AppHandle, session_id: &str) -> AppResult<BootstrapState> {
-        debug_log("reconnect_session.start", format!("session_id={session_id}"));
+    pub fn reconnect_session(
+        &self,
+        app_handle: &AppHandle,
+        session_id: &str,
+    ) -> AppResult<BootstrapState> {
+        debug_log(
+            "reconnect_session.start",
+            format!("session_id={session_id}"),
+        );
         let (connection, trusted_host, cols, rows, previous_runtime) = {
             let mut store = self.store.lock()?;
             let connection = store.find_connection_for_session(session_id)?.clone();
@@ -280,16 +315,21 @@ impl AppState {
             "reconnect_session.open_new.start",
             format!("session_id={session_id} cols={cols} rows={rows}"),
         );
-        let opened = tauri::async_runtime::block_on(ssh::default_ssh_service().open_shell_session(
-            &connection,
-            &trusted_host,
-            cols,
-            rows,
-        ))?;
-        debug_log("reconnect_session.open_new.done", format!("session_id={session_id}"));
+        let opened = tauri::async_runtime::block_on(
+            ssh::default_ssh_service().open_shell_session(&connection, &trusted_host, cols, rows),
+        )?;
+        debug_log(
+            "reconnect_session.open_new.done",
+            format!("session_id={session_id}"),
+        );
         let reader_generation = {
             let mut store = self.store.lock()?;
-            store.reconnect_live_session(session_id, &connection, opened.connection, opened.writer)?;
+            store.reconnect_live_session(
+                session_id,
+                &connection,
+                opened.connection,
+                opened.writer,
+            )?;
             store.current_reader_generation(session_id)?
         };
 
@@ -328,10 +368,10 @@ impl AppState {
     }
 
     /// Updates the PTY size tracked for a session and forwards it to the remote host.
-    pub fn resize_session(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<BootstrapState> {
+    pub fn resize_session(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
         let mut store = self.store.lock()?;
         store.resize_session(session_id, cols, rows)?;
-        Ok(store.snapshot())
+        Ok(())
     }
 
     pub fn send_session_input(&self, session_id: &str, input: &str) -> AppResult<BootstrapState> {
@@ -340,14 +380,21 @@ impl AppState {
         Ok(store.snapshot())
     }
 
-    pub fn run_snippet_on_session(&self, session_id: &str, snippet_id: &str) -> AppResult<BootstrapState> {
+    pub fn run_snippet_on_session(
+        &self,
+        session_id: &str,
+        snippet_id: &str,
+    ) -> AppResult<BootstrapState> {
         let mut store = self.store.lock()?;
         store.run_snippet_on_session(session_id, snippet_id)?;
         Ok(store.snapshot())
     }
 
     pub fn list_remote_entries(&self, session_id: &str) -> AppResult<Vec<RemoteFileEntry>> {
-        debug_log("list_remote_entries.request", format!("session_id={session_id}"));
+        debug_log(
+            "list_remote_entries.request",
+            format!("session_id={session_id}"),
+        );
         let (runtime, requested_path) = {
             let mut store = self.store.lock()?;
             let requested_path = store
@@ -402,10 +449,9 @@ impl AppState {
             store.take_runtime(session_id)?
         };
         let started_at = Instant::now();
-        let result = tauri::async_runtime::block_on(sftp::default_sftp_service().list_directory(
-            &runtime.connection,
-            path,
-        ));
+        let result = tauri::async_runtime::block_on(
+            sftp::default_sftp_service().list_directory(&runtime.connection, path),
+        );
         let result = {
             let mut store = self.store.lock()?;
             store.restore_runtime(session_id, runtime);
@@ -426,7 +472,11 @@ impl AppState {
     }
 
     /// Navigates the tracked remote working directory to the provided target path.
-    pub fn navigate_remote_directory(&self, session_id: &str, path: &str) -> AppResult<BootstrapState> {
+    pub fn navigate_remote_directory(
+        &self,
+        session_id: &str,
+        path: &str,
+    ) -> AppResult<BootstrapState> {
         debug_log(
             "navigate_remote_directory.request",
             format!("session_id={session_id} path={path}"),
@@ -436,15 +486,19 @@ impl AppState {
             store.take_runtime(session_id)?
         };
         let started_at = Instant::now();
-        let result =
-            tauri::async_runtime::block_on(sftp::default_sftp_service().list_directory(&runtime.connection, path));
+        let result = tauri::async_runtime::block_on(
+            sftp::default_sftp_service().list_directory(&runtime.connection, path),
+        );
         let mut store = self.store.lock()?;
         store.restore_runtime(session_id, runtime);
         let listing = result?;
         store.update_session_current_path(session_id, &listing.canonical_path)?;
         debug_log(
             "navigate_remote_directory.done",
-            format!("session_id={session_id} path={path} elapsed_ms={}", started_at.elapsed().as_millis()),
+            format!(
+                "session_id={session_id} path={path} elapsed_ms={}",
+                started_at.elapsed().as_millis()
+            ),
         );
         Ok(store.snapshot())
     }
@@ -470,17 +524,19 @@ impl AppState {
             (runtime, parent_path)
         };
         let started_at = Instant::now();
-        let result = tauri::async_runtime::block_on(sftp::default_sftp_service().list_directory(
-            &runtime.connection,
-            &parent_path,
-        ));
+        let result = tauri::async_runtime::block_on(
+            sftp::default_sftp_service().list_directory(&runtime.connection, &parent_path),
+        );
         let mut store = self.store.lock()?;
         store.restore_runtime(session_id, runtime);
         let listing = result?;
         store.update_session_current_path(session_id, &listing.canonical_path)?;
         debug_log(
             "navigate_remote_to_parent.done",
-            format!("session_id={session_id} elapsed_ms={}", started_at.elapsed().as_millis()),
+            format!(
+                "session_id={session_id} elapsed_ms={}",
+                started_at.elapsed().as_millis()
+            ),
         );
         Ok(store.snapshot())
     }
@@ -510,7 +566,11 @@ impl AppState {
     }
 
     /// Creates a remote directory for the active SFTP session.
-    pub fn create_remote_directory(&self, session_id: &str, path: &str) -> AppResult<BootstrapState> {
+    pub fn create_remote_directory(
+        &self,
+        session_id: &str,
+        path: &str,
+    ) -> AppResult<BootstrapState> {
         let mut store = self.store.lock()?;
         store.create_remote_directory(session_id, path)?;
         Ok(store.snapshot())
@@ -564,7 +624,26 @@ impl AppState {
         let store = Arc::clone(&self.store);
 
         tauri::async_runtime::spawn(async move {
-            while let Some(message) = reader.wait().await {
+            let flush_delay = Duration::from_millis(SESSION_EVENT_FLUSH_DELAY_MS);
+            let mut pending_output: Option<SessionOutputEventPayload> = None;
+
+            loop {
+                let next_message = if pending_output.is_some() {
+                    match tokio::time::timeout(flush_delay, reader.wait()).await {
+                        Ok(message) => message,
+                        Err(_) => {
+                            flush_pending_output_event(&app_handle, &mut pending_output);
+                            continue;
+                        }
+                    }
+                } else {
+                    reader.wait().await
+                };
+
+                let Some(message) = next_message else {
+                    break;
+                };
+
                 let payload = match store.lock() {
                     Ok(mut guard) => {
                         if !guard.is_reader_generation_current(&session_id, reader_generation) {
@@ -576,14 +655,28 @@ impl AppState {
                 };
 
                 if let Some(payload) = payload {
-                    emit_session_event(&app_handle, payload);
+                    match payload {
+                        SessionUiEvent::Output(output) => {
+                            if let Some(flushed) =
+                                merge_pending_output_event(&mut pending_output, output)
+                            {
+                                emit_session_event(&app_handle, flushed);
+                            }
+                        }
+                        SessionUiEvent::Status(status) => {
+                            flush_pending_output_event(&app_handle, &mut pending_output);
+                            emit_session_event(&app_handle, SessionUiEvent::Status(status));
+                        }
+                    }
                 }
             }
 
+            flush_pending_output_event(&app_handle, &mut pending_output);
+
             if let Ok(mut guard) = store.lock() {
                 if guard.is_reader_generation_current(&session_id, reader_generation) {
-                    if let Some(payload) =
-                        guard.mark_session_disconnected(&session_id, "\r\n[TermoraX] SSH 连接已断开。")
+                    if let Some(payload) = guard
+                        .mark_session_disconnected(&session_id, "\r\n[TermoraX] SSH 连接已断开。")
                     {
                         emit_session_event(&app_handle, payload);
                     }
@@ -664,13 +757,19 @@ impl AppStore {
         connections::validate_profile(profile, &self.persisted.connections)
     }
 
-    fn test_connection_profile(&self, profile: ConnectionProfile) -> AppResult<ConnectionTestResult> {
+    fn test_connection_profile(
+        &self,
+        profile: ConnectionProfile,
+    ) -> AppResult<ConnectionTestResult> {
         let result = connections::simulate_connection_test(profile, &self.persisted.connections)?;
         ssh::default_ssh_service().prepare_connection_from_profile(&result.normalized_profile)?;
         Ok(result)
     }
 
-    fn import_connection_profiles_json(&mut self, payload: &str) -> AppResult<ConnectionImportResult> {
+    fn import_connection_profiles_json(
+        &mut self,
+        payload: &str,
+    ) -> AppResult<ConnectionImportResult> {
         let (imported_profiles, skipped, duplicate_count) =
             connections::import_profiles_json(payload, &self.persisted.connections)?;
 
@@ -727,8 +826,11 @@ impl AppStore {
             .filter(|item| item.connection_id == connection_id)
             .map(|item| item.id.clone())
             .collect::<Vec<_>>();
-        self.persisted.connections.retain(|item| item.id != connection_id);
-        self.sessions.retain(|item| item.connection_id != connection_id);
+        self.persisted
+            .connections
+            .retain(|item| item.id != connection_id);
+        self.sessions
+            .retain(|item| item.connection_id != connection_id);
         for session_id in removed_session_ids {
             self.runtimes.remove(&session_id);
             self.reader_generations.remove(&session_id);
@@ -887,7 +989,11 @@ impl AppStore {
         self.runtimes.insert(session_id.to_string(), runtime);
     }
 
-    fn update_session_current_path(&mut self, session_id: &str, current_path: &str) -> AppResult<()> {
+    fn update_session_current_path(
+        &mut self,
+        session_id: &str,
+        current_path: &str,
+    ) -> AppResult<()> {
         let session = self
             .sessions
             .iter_mut()
@@ -984,18 +1090,25 @@ impl AppStore {
         self.send_session_input(session_id, &command)
     }
 
-    fn upload_file_to_remote(&mut self, session_id: &str, local_path: &str, remote_path: &str) -> AppResult<()> {
+    fn upload_file_to_remote(
+        &mut self,
+        session_id: &str,
+        local_path: &str,
+        remote_path: &str,
+    ) -> AppResult<()> {
         let local_path_ref = Path::new(local_path);
         let file_size = fs::metadata(local_path_ref)?.len();
-        let task_id = self.start_transfer_task(session_id, "upload", local_path, remote_path, file_size);
-        let runtime = self
-            .runtimes
-            .get(session_id)
-            .ok_or_else(|| AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接"))?;
+        let task_id =
+            self.start_transfer_task(session_id, "upload", local_path, remote_path, file_size);
+        let runtime = self.runtimes.get(session_id).ok_or_else(|| {
+            AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接")
+        })?;
 
-        match tauri::async_runtime::block_on(
-            sftp::default_sftp_service().upload_file(&runtime.connection, local_path_ref, remote_path),
-        ) {
+        match tauri::async_runtime::block_on(sftp::default_sftp_service().upload_file(
+            &runtime.connection,
+            local_path_ref,
+            remote_path,
+        )) {
             Ok(bytes_transferred) => {
                 self.finish_transfer_task_success(&task_id, bytes_transferred);
                 self.record_activity(format!(
@@ -1012,17 +1125,23 @@ impl AppStore {
         }
     }
 
-    fn download_file_from_remote(&mut self, session_id: &str, remote_path: &str, local_path: &str) -> AppResult<()> {
+    fn download_file_from_remote(
+        &mut self,
+        session_id: &str,
+        remote_path: &str,
+        local_path: &str,
+    ) -> AppResult<()> {
         let local_path_ref = Path::new(local_path);
         let task_id = self.start_transfer_task(session_id, "download", local_path, remote_path, 0);
-        let runtime = self
-            .runtimes
-            .get(session_id)
-            .ok_or_else(|| AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接"))?;
+        let runtime = self.runtimes.get(session_id).ok_or_else(|| {
+            AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接")
+        })?;
 
-        match tauri::async_runtime::block_on(
-            sftp::default_sftp_service().download_file(&runtime.connection, remote_path, local_path_ref),
-        ) {
+        match tauri::async_runtime::block_on(sftp::default_sftp_service().download_file(
+            &runtime.connection,
+            remote_path,
+            local_path_ref,
+        )) {
             Ok(bytes_transferred) => {
                 self.finish_transfer_task_success(&task_id, bytes_transferred);
                 self.record_activity(format!(
@@ -1040,34 +1159,45 @@ impl AppStore {
     }
 
     fn create_remote_directory(&mut self, session_id: &str, path: &str) -> AppResult<()> {
-        let runtime = self
-            .runtimes
-            .get(session_id)
-            .ok_or_else(|| AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接"))?;
+        let runtime = self.runtimes.get(session_id).ok_or_else(|| {
+            AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接")
+        })?;
 
-        tauri::async_runtime::block_on(sftp::default_sftp_service().create_directory(&runtime.connection, path))?;
+        tauri::async_runtime::block_on(
+            sftp::default_sftp_service().create_directory(&runtime.connection, path),
+        )?;
         self.record_activity(format!("已创建远程目录 {}。", path));
         Ok(())
     }
 
-    fn rename_remote_entry(&mut self, session_id: &str, path: &str, target_path: &str) -> AppResult<()> {
-        let runtime = self
-            .runtimes
-            .get(session_id)
-            .ok_or_else(|| AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接"))?;
+    fn rename_remote_entry(
+        &mut self,
+        session_id: &str,
+        path: &str,
+        target_path: &str,
+    ) -> AppResult<()> {
+        let runtime = self.runtimes.get(session_id).ok_or_else(|| {
+            AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接")
+        })?;
 
-        tauri::async_runtime::block_on(
-            sftp::default_sftp_service().rename_path(&runtime.connection, path, target_path),
-        )?;
+        tauri::async_runtime::block_on(sftp::default_sftp_service().rename_path(
+            &runtime.connection,
+            path,
+            target_path,
+        ))?;
         self.record_activity(format!("已重命名远程路径 {} -> {}。", path, target_path));
         Ok(())
     }
 
-    fn delete_remote_entry(&mut self, session_id: &str, path: &str, is_directory: bool) -> AppResult<()> {
-        let runtime = self
-            .runtimes
-            .get(session_id)
-            .ok_or_else(|| AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接"))?;
+    fn delete_remote_entry(
+        &mut self,
+        session_id: &str,
+        path: &str,
+        is_directory: bool,
+    ) -> AppResult<()> {
+        let runtime = self.runtimes.get(session_id).ok_or_else(|| {
+            AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接")
+        })?;
 
         if is_directory {
             tauri::async_runtime::block_on(
@@ -1075,7 +1205,9 @@ impl AppStore {
             )?;
             self.record_activity(format!("已删除远程目录 {}。", path));
         } else {
-            tauri::async_runtime::block_on(sftp::default_sftp_service().delete_file(&runtime.connection, path))?;
+            tauri::async_runtime::block_on(
+                sftp::default_sftp_service().delete_file(&runtime.connection, path),
+            )?;
             self.record_activity(format!("已删除远程文件 {}。", path));
         }
 
@@ -1086,12 +1218,16 @@ impl AppStore {
         let request = self.build_retry_transfer_request(task_id)?;
 
         match request.direction.as_str() {
-            "upload" => {
-                self.upload_file_to_remote(&request.session_id, &request.local_path, &request.remote_path)
-            }
-            "download" => {
-                self.download_file_from_remote(&request.session_id, &request.remote_path, &request.local_path)
-            }
+            "upload" => self.upload_file_to_remote(
+                &request.session_id,
+                &request.local_path,
+                &request.remote_path,
+            ),
+            "download" => self.download_file_from_remote(
+                &request.session_id,
+                &request.remote_path,
+                &request.local_path,
+            ),
             _ => Err(AppError::new(
                 "transfer_task_invalid_direction",
                 "传输任务方向无效，无法重试",
@@ -1182,7 +1318,10 @@ impl AppStore {
                 ..
             } => self.mark_session_disconnected(
                 session_id,
-                &format!("\r\n[TermoraX] 远端会话因信号 {:?} 结束：{}", signal_name, error_message),
+                &format!(
+                    "\r\n[TermoraX] 远端会话因信号 {:?} 结束：{}",
+                    signal_name, error_message
+                ),
             ),
             ChannelMsg::Close | ChannelMsg::Eof => {
                 self.mark_session_disconnected(session_id, "\r\n[TermoraX] SSH 连接已断开。")
@@ -1196,8 +1335,13 @@ impl AppStore {
         session_id: &str,
         message: &str,
     ) -> Option<SessionUiEvent> {
-        let session_title =
-            sessions::set_session_status(&mut self.sessions, session_id, "disconnected", Some(message)).ok()?;
+        let session_title = sessions::set_session_status(
+            &mut self.sessions,
+            session_id,
+            "disconnected",
+            Some(message),
+        )
+        .ok()?;
         self.runtimes.remove(session_id);
         self.record_activity(format!("会话 {} 已断开。", session_title));
 
@@ -1374,7 +1518,10 @@ fn ensure_trust_request_matches(
 ) -> AppResult<()> {
     let requested_fingerprint = fingerprint.trim();
     if requested_fingerprint.is_empty() {
-        return Err(AppError::new("ssh_host_fingerprint_required", "主机指纹不能为空"));
+        return Err(AppError::new(
+            "ssh_host_fingerprint_required",
+            "主机指纹不能为空",
+        ));
     }
 
     if requested_fingerprint != inspected_host.fingerprint {
@@ -1439,15 +1586,52 @@ fn emit_session_event(app_handle: &AppHandle, event: SessionUiEvent) {
     }
 }
 
+fn merge_pending_output_event(
+    pending_output: &mut Option<SessionOutputEventPayload>,
+    next_output: SessionOutputEventPayload,
+) -> Option<SessionUiEvent> {
+    match pending_output {
+        Some(current)
+            if current.stream == next_output.stream
+                && current.chunk.len() + next_output.chunk.len()
+                    <= MAX_BATCHED_SESSION_OUTPUT_CHARS =>
+        {
+            current.chunk.push_str(&next_output.chunk);
+            current.occurred_at = next_output.occurred_at;
+            None
+        }
+        Some(_) => {
+            let flushed = pending_output.take().map(SessionUiEvent::Output);
+            *pending_output = Some(next_output);
+            flushed
+        }
+        None => {
+            *pending_output = Some(next_output);
+            None
+        }
+    }
+}
+
+fn flush_pending_output_event(
+    app_handle: &AppHandle,
+    pending_output: &mut Option<SessionOutputEventPayload>,
+) {
+    if let Some(output) = pending_output.take() {
+        emit_session_event(app_handle, SessionUiEvent::Output(output));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{env, fs, path::PathBuf};
 
     use super::{
-        AppState, AppStore, build_host_fingerprint_inspection, ensure_trust_request_matches,
-        parent_remote_path,
+        build_host_fingerprint_inspection, ensure_trust_request_matches,
+        merge_pending_output_event, parent_remote_path, AppState, AppStore,
+        MAX_BATCHED_SESSION_OUTPUT_CHARS,
     };
     use crate::{
+        events::SessionOutputEventPayload,
         models::{ConnectionProfile, TrustedHost},
         services::ssh::InspectedSshHostKey,
     };
@@ -1484,11 +1668,22 @@ mod tests {
         }
     }
 
+    fn output_payload(chunk: &str, stream: &'static str) -> SessionOutputEventPayload {
+        SessionOutputEventPayload {
+            kind: "output",
+            session_id: "session-1".into(),
+            stream,
+            chunk: chunk.into(),
+            occurred_at: "1".into(),
+        }
+    }
+
     #[test]
     fn app_state_imports_and_exports_profiles() {
         let dir = temp_config_dir("import-export");
         let state = AppState::new(dir).expect("state should initialize");
-        let payload = serde_json::to_string(&vec![profile("conn-test-import")]).expect("json should serialize");
+        let payload = serde_json::to_string(&vec![profile("conn-test-import")])
+            .expect("json should serialize");
 
         let import_result = state
             .import_connection_profiles_json(&payload)
@@ -1592,8 +1787,9 @@ mod tests {
             .expect_err("blank trust fingerprint should fail");
         assert_eq!(empty_error.code, "ssh_host_fingerprint_required");
 
-        let stale_error = ensure_trust_request_matches("SHA256:old", &inspected_host("SHA256:current"))
-            .expect_err("stale trust fingerprint should fail");
+        let stale_error =
+            ensure_trust_request_matches("SHA256:old", &inspected_host("SHA256:current"))
+                .expect_err("stale trust fingerprint should fail");
         assert_eq!(stale_error.code, "ssh_host_fingerprint_stale");
 
         ensure_trust_request_matches("SHA256:current", &inspected_host("SHA256:current"))
@@ -1625,7 +1821,8 @@ mod tests {
                 trusted_at: "1".into(),
             }),
         );
-        let untrusted = build_host_fingerprint_inspection(&connection, &inspected_host("SHA256:new"), None);
+        let untrusted =
+            build_host_fingerprint_inspection(&connection, &inspected_host("SHA256:new"), None);
 
         assert_eq!(trusted.trust_status, "trusted");
         assert_eq!(mismatch.trust_status, "mismatch");
@@ -1647,7 +1844,10 @@ mod tests {
             .expect("second trust should replace prior entry");
 
         assert_eq!(store.persisted.trusted_hosts.len(), 1);
-        assert_eq!(store.persisted.trusted_hosts[0].fingerprint, "SHA256:second");
+        assert_eq!(
+            store.persisted.trusted_hosts[0].fingerprint,
+            "SHA256:second"
+        );
     }
 
     #[test]
@@ -1655,10 +1855,20 @@ mod tests {
         let dir = temp_config_dir("transfer-lifecycle");
         let mut store = AppStore::load(dir).expect("store should initialize");
 
-        let upload_task_id =
-            store.start_transfer_task("session-1", "upload", "C:/tmp/demo.log", "/home/demo/demo.log", 128);
-        let download_task_id =
-            store.start_transfer_task("session-1", "download", "D:/backup/demo.log", "/srv/demo.log", 0);
+        let upload_task_id = store.start_transfer_task(
+            "session-1",
+            "upload",
+            "C:/tmp/demo.log",
+            "/home/demo/demo.log",
+            128,
+        );
+        let download_task_id = store.start_transfer_task(
+            "session-1",
+            "download",
+            "D:/backup/demo.log",
+            "/srv/demo.log",
+            0,
+        );
 
         store.finish_transfer_task_success(&upload_task_id, 128);
         store.finish_transfer_task_failure(&download_task_id, "download failed".into());
@@ -1707,11 +1917,21 @@ mod tests {
         let dir = temp_config_dir("transfer-retryable");
         let mut store = AppStore::load(dir).expect("store should initialize");
 
-        let failed_task_id =
-            store.start_transfer_task("session-1", "upload", "C:/tmp/demo.log", "/home/demo/demo.log", 128);
+        let failed_task_id = store.start_transfer_task(
+            "session-1",
+            "upload",
+            "C:/tmp/demo.log",
+            "/home/demo/demo.log",
+            128,
+        );
         store.finish_transfer_task_failure(&failed_task_id, "failed".into());
-        let running_task_id =
-            store.start_transfer_task("session-1", "download", "D:/tmp/demo.log", "/srv/demo.log", 128);
+        let running_task_id = store.start_transfer_task(
+            "session-1",
+            "download",
+            "D:/tmp/demo.log",
+            "/srv/demo.log",
+            128,
+        );
 
         let request = store
             .build_retry_transfer_request(&failed_task_id)
@@ -1737,13 +1957,28 @@ mod tests {
         let dir = temp_config_dir("transfer-clear-completed");
         let mut store = AppStore::load(dir).expect("store should initialize");
 
-        let running_task_id =
-            store.start_transfer_task("session-1", "upload", "C:/tmp/live.log", "/home/demo/live.log", 32);
-        let succeeded_task_id =
-            store.start_transfer_task("session-1", "upload", "C:/tmp/done.log", "/home/demo/done.log", 64);
+        let running_task_id = store.start_transfer_task(
+            "session-1",
+            "upload",
+            "C:/tmp/live.log",
+            "/home/demo/live.log",
+            32,
+        );
+        let succeeded_task_id = store.start_transfer_task(
+            "session-1",
+            "upload",
+            "C:/tmp/done.log",
+            "/home/demo/done.log",
+            64,
+        );
         store.finish_transfer_task_success(&succeeded_task_id, 64);
-        let failed_task_id =
-            store.start_transfer_task("session-1", "download", "D:/tmp/fail.log", "/srv/fail.log", 0);
+        let failed_task_id = store.start_transfer_task(
+            "session-1",
+            "download",
+            "D:/tmp/fail.log",
+            "/srv/fail.log",
+            0,
+        );
         store.finish_transfer_task_failure(&failed_task_id, "failed".into());
 
         store.clear_completed_transfer_tasks();
@@ -1764,5 +1999,58 @@ mod tests {
         assert_eq!(parent_remote_path("/home"), "/");
         assert_eq!(parent_remote_path("/home/demo"), "/home");
         assert_eq!(parent_remote_path("/home/demo/"), "/home");
+    }
+
+    #[test]
+    fn merge_pending_output_event_appends_same_stream_chunks() {
+        let mut pending = Some(output_payload("hello", "stdout"));
+
+        let flushed = merge_pending_output_event(&mut pending, output_payload(" world", "stdout"));
+
+        assert!(flushed.is_none());
+        assert_eq!(
+            pending.expect("pending output should exist").chunk,
+            "hello world"
+        );
+    }
+
+    #[test]
+    fn merge_pending_output_event_flushes_when_stream_changes() {
+        let mut pending = Some(output_payload("hello", "stdout"));
+
+        let flushed = merge_pending_output_event(&mut pending, output_payload("oops", "stderr"));
+
+        let flushed = flushed.expect("previous output should flush");
+        match flushed {
+            super::SessionUiEvent::Output(payload) => {
+                assert_eq!(payload.chunk, "hello");
+                assert_eq!(payload.stream, "stdout");
+            }
+            super::SessionUiEvent::Status(_) => panic!("expected output event"),
+        }
+        assert_eq!(
+            pending.expect("stderr output should remain pending").chunk,
+            "oops"
+        );
+    }
+
+    #[test]
+    fn merge_pending_output_event_flushes_when_chunk_budget_is_exceeded() {
+        let prefix = "a".repeat(MAX_BATCHED_SESSION_OUTPUT_CHARS);
+        let mut pending = Some(output_payload(&prefix, "stdout"));
+
+        let flushed = merge_pending_output_event(&mut pending, output_payload("b", "stdout"));
+
+        let flushed = flushed.expect("full pending buffer should flush");
+        match flushed {
+            super::SessionUiEvent::Output(payload) => {
+                assert_eq!(payload.chunk.len(), MAX_BATCHED_SESSION_OUTPUT_CHARS);
+            }
+            super::SessionUiEvent::Status(_) => panic!("expected output event"),
+        }
+        assert_eq!(
+            pending.expect("overflow chunk should remain pending").chunk,
+            "b"
+        );
     }
 }

@@ -720,7 +720,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
             : item,
         ),
       };
-      return cloneState() as T;
+      return undefined as T;
     }
     case "send_session_input": {
       const sessionId = args?.sessionId as string;
@@ -957,7 +957,7 @@ export const desktopClient = {
     return callOrMock<BootstrapState>("clear_session_output", { sessionId });
   },
   resizeSession(sessionId: string, cols: number, rows: number) {
-    return callOrMock<BootstrapState>("resize_session", { sessionId, cols, rows });
+    return callOrMock<void>("resize_session", { sessionId, cols, rows });
   },
   sendSessionInput(sessionId: string, input: string) {
     return callOrMock<BootstrapState>("send_session_input", { sessionId, input });

@@ -71,6 +71,10 @@ const initialState: WorkspaceState = {
   lastHostInspection: null,
 };
 
+const SESSION_EVENT_FLUSH_DELAY_MS = 33;
+const REMOTE_PANEL_IDLE_REFRESH_DELAY_MS = 1200;
+const MAX_SESSION_OUTPUT_CHARS = 200_000;
+
 function deriveNextSelection(snapshot: BootstrapState, currentConnectionId: string | null, currentSessionId: string | null) {
   const selectedConnectionId =
     snapshot.connections.some((item) => item.id === currentConnectionId)
@@ -87,6 +91,13 @@ function deriveNextSelection(snapshot: BootstrapState, currentConnectionId: stri
 function normalizeBootstrapState(snapshot: BootstrapState): BootstrapState {
   return {
     ...snapshot,
+    sessions: snapshot.sessions.map((session) => ({
+      ...session,
+      lastOutput:
+        session.lastOutput.length > MAX_SESSION_OUTPUT_CHARS
+          ? session.lastOutput.slice(-MAX_SESSION_OUTPUT_CHARS)
+          : session.lastOutput,
+    })),
     settings: normalizeAppSettings(snapshot.settings),
   };
 }
@@ -139,14 +150,50 @@ export function mergeSnapshotSessions(currentSessions: SessionTab[], snapshotSes
   });
 }
 
+/**
+ * Keeps terminal dimensions in sync locally so frequent resize acknowledgements
+ * do not need to round-trip a full workspace snapshot back into React state.
+ */
+export function updateSessionTerminalSize(
+  sessions: SessionTab[],
+  sessionId: string,
+  cols: number,
+  rows: number,
+): SessionTab[] {
+  let mutated = false;
+
+  const updated = sessions.map((session) => {
+    if (session.id !== sessionId) {
+      return session;
+    }
+
+    if (session.terminalCols === cols && session.terminalRows === rows) {
+      return session;
+    }
+
+    mutated = true;
+    return {
+      ...session,
+      terminalCols: cols,
+      terminalRows: rows,
+    };
+  });
+
+  return mutated ? updated : sessions;
+}
+
 export function useWorkspaceApp() {
   const [state, setState] = useState<WorkspaceState>(initialState);
   const remoteEntriesRequestRef = useRef(0);
   const remoteRootEntriesRequestRef = useRef(0);
+  const pendingSessionEventsRef = useRef<SessionEvent[]>([]);
+  const sessionEventFlushTimerRef = useRef<number | null>(null);
   const lastLoadedRemotePathRef = useRef<string | null>(null);
   const lastLoadedRootSessionRef = useRef<string | null>(null);
-  const activeSessionCurrentPath =
-    state.sessions.find((item) => item.id === state.activeSessionId)?.currentPath ?? null;
+  const activeSessionRecord = state.sessions.find((item) => item.id === state.activeSessionId) ?? null;
+  const activeSessionCurrentPath = activeSessionRecord?.currentPath ?? null;
+  const activeSessionUpdatedAt = activeSessionRecord?.updatedAt ?? null;
+  const activeSessionStatus = activeSessionRecord?.status ?? null;
   const filesPanelVisible =
     state.settings.workspace.bottomPanelVisible && state.settings.workspace.bottomPanel === "files";
 
@@ -287,7 +334,7 @@ export function useWorkspaceApp() {
   }, [state.activeSessionId]);
 
   useEffect(() => {
-    if (!filesPanelVisible || !state.activeSessionId) {
+    if (!filesPanelVisible || !state.activeSessionId || activeSessionStatus !== "connected") {
       return;
     }
 
@@ -300,37 +347,81 @@ export function useWorkspaceApp() {
       return;
     }
 
-    lastLoadedRemotePathRef.current = pathKey;
-    if (shouldRefreshRoot) {
-      lastLoadedRootSessionRef.current = sessionId;
-    }
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (shouldRefreshEntries) {
+          lastLoadedRemotePathRef.current = pathKey;
+        }
 
-    void (async () => {
-      if (shouldRefreshEntries) {
-        await refreshRemoteEntries(sessionId);
-      }
+        if (shouldRefreshRoot) {
+          lastLoadedRootSessionRef.current = sessionId;
+        }
 
-      if (shouldRefreshRoot) {
-        await refreshRemoteRootEntries(sessionId);
-      }
-    })();
-  }, [state.activeSessionId, activeSessionCurrentPath, filesPanelVisible, refreshRemoteEntries, refreshRemoteRootEntries]);
+        if (shouldRefreshEntries) {
+          await refreshRemoteEntries(sessionId);
+        }
+
+        if (shouldRefreshRoot) {
+          await refreshRemoteRootEntries(sessionId);
+        }
+      })();
+    }, REMOTE_PANEL_IDLE_REFRESH_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    state.activeSessionId,
+    activeSessionCurrentPath,
+    activeSessionStatus,
+    activeSessionUpdatedAt,
+    filesPanelVisible,
+    refreshRemoteEntries,
+    refreshRemoteRootEntries,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
     let unsubscribe: (() => void) | null = null;
 
+    const flushPendingSessionEvents = () => {
+      sessionEventFlushTimerRef.current = null;
+      const events = pendingSessionEventsRef.current;
+      pendingSessionEventsRef.current = [];
+
+      if (cancelled || events.length === 0) {
+        return;
+      }
+
+      setState((current) => {
+        let sessions = current.sessions;
+
+        for (const event of events) {
+          sessions = mergeSessionEvent(sessions, event);
+        }
+
+        if (sessions === current.sessions) {
+          return current;
+        }
+
+        return { ...current, sessions };
+      });
+    };
+
     const listener = (event: SessionEvent) => {
       if (cancelled) {
         return;
       }
-      setState((current) => {
-        const updatedSessions = mergeSessionEvent(current.sessions, event);
-        if (updatedSessions === current.sessions) {
-          return current;
-        }
-        return { ...current, sessions: updatedSessions };
-      });
+
+      pendingSessionEventsRef.current.push(event);
+      if (sessionEventFlushTimerRef.current != null) {
+        return;
+      }
+
+      sessionEventFlushTimerRef.current = window.setTimeout(
+        flushPendingSessionEvents,
+        SESSION_EVENT_FLUSH_DELAY_MS,
+      );
     };
 
     void desktopClient
@@ -350,6 +441,11 @@ export function useWorkspaceApp() {
 
     return () => {
       cancelled = true;
+      pendingSessionEventsRef.current = [];
+      if (sessionEventFlushTimerRef.current != null) {
+        window.clearTimeout(sessionEventFlushTimerRef.current);
+        sessionEventFlushTimerRef.current = null;
+      }
       unsubscribe?.();
     };
   }, []);
@@ -550,7 +646,27 @@ export function useWorkspaceApp() {
       await runMutation(() => desktopClient.clearSessionOutput(sessionId));
     },
     async resizeSession(sessionId: string, cols: number, rows: number) {
-      await runMutation(() => desktopClient.resizeSession(sessionId, cols, rows));
+      setState((current) => {
+        const sessions = updateSessionTerminalSize(current.sessions, sessionId, cols, rows);
+        if (sessions === current.sessions) {
+          return current;
+        }
+
+        return {
+          ...current,
+          sessions,
+          error: null,
+        };
+      });
+
+      try {
+        await desktopClient.resizeSession(sessionId, cols, rows);
+      } catch (error) {
+        setState((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : t("errors.unexpectedWorkspace"),
+        }));
+      }
     },
     async sendSessionInput(sessionId: string, input: string) {
       if (!input) {
