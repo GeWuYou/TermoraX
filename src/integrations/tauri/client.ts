@@ -328,7 +328,7 @@ function createMockSession(connectionId: string): BootstrapState {
     title: connection.name,
     protocol: "ssh" as const,
     status: "connected" as const,
-    currentPath: `/home/${connection.username}`,
+    currentPath: "/",
     terminalCols: 120,
     terminalRows: 32,
     lastOutput: [
@@ -650,6 +650,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
             ? {
                 ...item,
                 status: "connected",
+                currentPath: "/",
                 updatedAt: new Date().toISOString(),
                 lastOutput: `${item.lastOutput}\n\n${t("terminal.reconnected")}`,
               }

@@ -274,12 +274,12 @@ export function useWorkspaceApp() {
   }, [state.activeSessionId]);
 
   useEffect(() => {
-    if (!filesPanelVisible || !state.activeSessionId || !activeSessionCurrentPath) {
+    if (!filesPanelVisible || !state.activeSessionId) {
       return;
     }
 
     const sessionId = state.activeSessionId;
-    const pathKey = `${sessionId}:${activeSessionCurrentPath}`;
+    const pathKey = `${sessionId}:${activeSessionCurrentPath ?? "."}`;
     const shouldRefreshEntries = lastLoadedRemotePathRef.current !== pathKey;
     const shouldRefreshRoot = lastLoadedRootSessionRef.current !== sessionId;
 

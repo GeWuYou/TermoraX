@@ -778,7 +778,7 @@ impl AppStore {
                 .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?;
             let session_title = session.title.clone();
             session.status = "connected".into();
-            session.current_path = Some(format!("/home/{}", connection.username));
+            session.current_path = Some("/".into());
             session.last_output = format!(
                 "已重新连接到 {}@{}:{}\r\n\r\n[TermoraX] 真实 SSH 终端已恢复。",
                 connection.username, connection.host, connection.port

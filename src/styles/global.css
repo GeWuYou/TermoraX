@@ -1,6 +1,4 @@
 :root {
-  --workspace-min-width: 1360px;
-  --workspace-min-height: 860px;
   font-family: "Segoe UI Variable", "Noto Sans", "Liberation Sans", sans-serif;
   color: #f5f1e8;
   background:
@@ -38,13 +36,12 @@
 html,
 body,
 #root {
-  min-width: var(--workspace-min-width);
+  width: 100%;
   min-height: 100%;
 }
 
 body {
   margin: 0;
-  min-height: var(--workspace-min-height);
 }
 
 button,
@@ -75,14 +72,59 @@ textarea {
 
 .boot-screen,
 .workspace {
-  min-width: var(--workspace-min-width);
-  min-height: max(100vh, var(--workspace-min-height));
+  min-height: 100vh;
 }
 
 .boot-screen {
   display: grid;
   place-items: center;
   text-align: center;
+}
+
+.workspace-stage {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.workspace-stage--sand {
+  background:
+    radial-gradient(circle at top left, rgba(155, 109, 54, 0.16), transparent 32%),
+    radial-gradient(circle at top right, rgba(84, 118, 130, 0.18), transparent 28%),
+    linear-gradient(180deg, #efe5d1 0%, #e1d5bf 100%);
+}
+
+.workspace-stage--dark {
+  background:
+    radial-gradient(circle at top left, rgba(242, 160, 92, 0.16), transparent 30%),
+    radial-gradient(circle at top right, rgba(48, 110, 111, 0.2), transparent 28%),
+    linear-gradient(180deg, #1b2025 0%, #101316 100%);
+}
+
+.workspace-stage__viewport {
+  position: relative;
+}
+
+.workspace-stage__scale {
+  transform-origin: top left;
+}
+
+.workspace-stage__viewport--scaled {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.workspace-stage__scale--scaled {
+  position: absolute;
+  inset: 0 auto auto 0;
+}
+
+.workspace-stage__fill {
+  width: 100%;
+  height: 100%;
 }
 
 .boot-screen__eyebrow,
@@ -100,6 +142,9 @@ textarea {
   flex-direction: column;
   gap: 18px;
   padding: 20px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .workspace--sand {
@@ -131,6 +176,7 @@ textarea {
 .workspace-topbar h1 {
   margin: 0;
   font-size: clamp(28px, 4vw, 42px);
+  line-height: 1.15;
 }
 
 .workspace-locale-hint {
@@ -178,6 +224,11 @@ textarea {
 .workspace-right,
 .sidebar-stack {
   min-height: 0;
+}
+
+.workspace-sidebar {
+  display: flex;
+  overflow: hidden;
 }
 
 .workspace-main,
@@ -235,6 +286,16 @@ textarea {
   gap: 18px;
 }
 
+.sidebar-stack {
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sidebar-stack > .panel {
+  flex: 1 1 0;
+}
+
 .panel {
   display: flex;
   flex-direction: column;
@@ -262,6 +323,7 @@ textarea {
 .panel__title {
   margin: 0;
   font-size: 20px;
+  line-height: 1.2;
 }
 
 .panel__actions,

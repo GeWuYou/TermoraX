@@ -1,6 +1,7 @@
 import {
   FormEvent,
   PointerEvent,
+  type WheelEvent as ReactWheelEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -16,6 +17,7 @@ interface FilePanelProps {
   entries: RemoteFileEntry[];
   rootEntries: RemoteFileEntry[];
   currentPath: string | null;
+  layoutScale?: number;
   loading?: boolean;
   onRefresh?: () => void;
   onOpenDirectory?: (path: string) => void;
@@ -89,6 +91,7 @@ export function FilePanel(props: FilePanelProps) {
     entries,
     rootEntries,
     currentPath,
+    layoutScale = 1,
     loading = false,
     onRefresh,
     onOpenDirectory,
@@ -105,6 +108,8 @@ export function FilePanel(props: FilePanelProps) {
   const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
   const [directoryWidth, setDirectoryWidth] = useState(280);
   const splitRef = useRef<HTMLDivElement | null>(null);
+  const directoryListRef = useRef<HTMLDivElement | null>(null);
+  const fileTableBodyRef = useRef<HTMLDivElement | null>(null);
 
   const rootDirectories = useMemo(() => rootEntries.filter((entry) => entry.kind === "directory"), [rootEntries]);
   const selectedEntry = useMemo(
@@ -160,7 +165,7 @@ export function FilePanel(props: FilePanelProps) {
       const containerWidth = splitRef.current.clientWidth;
 
       const onMove = (moveEvent: PointerEvent) => {
-        const delta = moveEvent.clientX - startX;
+        const delta = (moveEvent.clientX - startX) / layoutScale;
         const maxWidth = Math.max(containerWidth - MIN_DIRECTORY_WIDTH, MIN_DIRECTORY_WIDTH);
         const nextWidth = Math.min(Math.max(startWidth + delta, MIN_DIRECTORY_WIDTH), maxWidth);
         setDirectoryWidth(nextWidth);
@@ -174,7 +179,7 @@ export function FilePanel(props: FilePanelProps) {
       window.addEventListener("pointermove", onMove as unknown as EventListener);
       window.addEventListener("pointerup", onUp);
     },
-    [directoryWidth],
+    [directoryWidth, layoutScale],
   );
 
   const iconButton = (label: string, onClick?: () => void, disabled?: boolean, icon?: string) => (
@@ -191,9 +196,29 @@ export function FilePanel(props: FilePanelProps) {
     </button>
   );
 
+  const forwardWheelToActiveList = useCallback((event: ReactWheelEvent<HTMLElement>) => {
+    const fileBody = fileTableBodyRef.current;
+    const directoryList = directoryListRef.current;
+    const targets = [fileBody, directoryList].filter((value): value is HTMLDivElement => Boolean(value));
+
+    for (const target of targets) {
+      const maxScrollTop = target.scrollHeight - target.clientHeight;
+      if (maxScrollTop <= 0) {
+        continue;
+      }
+
+      const nextScrollTop = Math.min(Math.max(target.scrollTop + event.deltaY, 0), maxScrollTop);
+      if (nextScrollTop !== target.scrollTop) {
+        target.scrollTop = nextScrollTop;
+        event.preventDefault();
+        return;
+      }
+    }
+  }, []);
+
   return (
     <Panel title={t("files.title")} className="file-panel">
-      <div className="file-panel__tabs-row">
+      <div className="file-panel__tabs-row" onWheel={forwardWheelToActiveList}>
         <div>
           <button type="button" className="file-panel__tab file-panel__tab--active">
             {t("files.tab.files")}
@@ -205,7 +230,7 @@ export function FilePanel(props: FilePanelProps) {
         <p className="file-panel__meta-count">{summaryLabel}</p>
       </div>
 
-      <form className="file-panel__path-row" onSubmit={handlePathSubmit}>
+      <form className="file-panel__path-row" onSubmit={handlePathSubmit} onWheel={forwardWheelToActiveList}>
         <label className="sr-only" htmlFor="file-panel-path">
           {pathLabel}
         </label>
@@ -262,7 +287,7 @@ export function FilePanel(props: FilePanelProps) {
               <strong>{t("files.directories")}</strong>
               <span>{t("files.entryCount", { count: rootDirectories.length })}</span>
             </header>
-            <div className="file-panel__directories-list">
+            <div className="file-panel__directories-list" ref={directoryListRef}>
               {rootDirectories.map((entry) => (
                 <button
                   key={entry.path}
@@ -298,14 +323,14 @@ export function FilePanel(props: FilePanelProps) {
               </div>
             ) : (
               <div className="file-table">
-                <header className="file-table__header">
+                <header className="file-table__header" onWheel={forwardWheelToActiveList}>
                   <span>{t("files.name")}</span>
                   <span>{t("files.size")}</span>
                   <span>{t("files.type")}</span>
                   <span>{t("files.modifiedAt")}</span>
                   <span>{t("files.actions")}</span>
                 </header>
-                <div className="file-table__body">
+                <div className="file-table__body" ref={fileTableBodyRef}>
                 {entries.map((entry) => {
                   const typeLabel = entry.kind === "file" ? t("files.file") : t("files.folder");
                   const sizeLabel = formatFileSize(entry.size);

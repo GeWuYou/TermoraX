@@ -15,8 +15,8 @@
         "title": "termorax",
         "width": 1440,
         "height": 900,
-        "minWidth": 1360,
-        "minHeight": 860
+        "minWidth": 960,
+        "minHeight": 640
       }
     ],
     "security": {

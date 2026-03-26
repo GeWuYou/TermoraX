@@ -54,6 +54,7 @@ vi.mock("@xterm/xterm", () => ({
     clear() {}
     reset() {}
     write() {}
+    scrollLines() {}
     scrollToBottom() {}
     dispose() {}
   },

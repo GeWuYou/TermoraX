@@ -314,11 +314,23 @@ export function TerminalHost({
       }
     };
 
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) {
+        return;
+      }
+
+      const lineDelta = Math.trunc(event.deltaY / 40) || (event.deltaY > 0 ? 1 : -1);
+      terminal.scrollLines(lineDelta);
+      event.preventDefault();
+    };
+
     window.addEventListener("resize", handleResize);
+    container.addEventListener("wheel", handleWheel, { passive: false });
     handleResize();
 
     return () => {
       window.removeEventListener("resize", handleResize);
+      container.removeEventListener("wheel", handleWheel);
       disposable.dispose();
       terminal.dispose();
       terminalRef.current = null;

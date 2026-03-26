@@ -21,7 +21,7 @@ pub fn open_connected_session(
         title: connection.name.clone(),
         protocol: "ssh".into(),
         status: "connected".into(),
-        current_path: Some(format!("/home/{}", connection.username)),
+        current_path: Some("/".into()),
         last_output: initial_output,
         terminal_cols,
         terminal_rows,
@@ -99,7 +99,7 @@ pub fn reconnect_session(
 ) -> AppResult<String> {
     let session = find_session_mut(sessions, session_id)?;
     session.status = "connected".into();
-    session.current_path = Some(format!("/home/{}", connection.username));
+    session.current_path = Some("/".into());
     session.last_output = format!(
         "{}\n\n[模拟器] 已重新连接到 {}@{}:{}。",
         session.last_output, connection.username, connection.host, connection.port
