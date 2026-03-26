@@ -32,6 +32,7 @@ interface WorkspaceState extends BootstrapState {
   selectedConnectionId: string | null;
   activeSessionId: string | null;
   remoteEntries: RemoteFileEntry[];
+  remoteEntriesLoading: boolean;
   connectionValidationErrors: ConnectionValidationErrors;
   connectionDuplicateWarning: ConnectionDuplicateWarning | null;
   connectionTestResult: ConnectionTestResult | null;
@@ -50,6 +51,7 @@ const initialState: WorkspaceState = {
   selectedConnectionId: null,
   activeSessionId: null,
   remoteEntries: [],
+  remoteEntriesLoading: false,
   connectionValidationErrors: {},
   connectionDuplicateWarning: null,
   connectionTestResult: null,
@@ -147,16 +149,17 @@ export function useWorkspaceApp() {
 
   useEffect(() => {
     if (!state.activeSessionId) {
-      setState((current) => ({ ...current, remoteEntries: [] }));
+      setState((current) => ({ ...current, remoteEntries: [], remoteEntriesLoading: false }));
       return;
     }
 
     let cancelled = false;
+    setState((current) => ({ ...current, remoteEntriesLoading: true }));
     void desktopClient
       .listRemoteEntries(state.activeSessionId)
       .then((remoteEntries) => {
         if (!cancelled) {
-          setState((current) => ({ ...current, remoteEntries }));
+          setState((current) => ({ ...current, remoteEntries, remoteEntriesLoading: false }));
         }
       })
       .catch((error) => {
@@ -164,12 +167,14 @@ export function useWorkspaceApp() {
           setState((current) => ({
             ...current,
             error: error instanceof Error ? error.message : t("errors.remoteEntries"),
+            remoteEntriesLoading: false,
           }));
         }
       });
 
     return () => {
       cancelled = true;
+      setState((current) => ({ ...current, remoteEntriesLoading: false }));
     };
   }, [state.activeSessionId]);
 

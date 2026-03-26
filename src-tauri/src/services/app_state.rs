@@ -18,7 +18,7 @@ use crate::{
         ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, PersistedState, RemoteFileEntry,
         SessionTab,
     },
-    services::{connections, sessions, ssh},
+    services::{connections, sessions, sftp, ssh},
 };
 
 struct LiveSessionRuntime {
@@ -242,7 +242,7 @@ impl AppState {
     }
 
     pub fn list_remote_entries(&self, session_id: &str) -> AppResult<Vec<RemoteFileEntry>> {
-        let store = self.store.lock()?;
+        let mut store = self.store.lock()?;
         store.list_remote_entries(session_id)
     }
 
@@ -558,41 +558,28 @@ impl AppStore {
         self.send_session_input(session_id, &command)
     }
 
-    fn list_remote_entries(&self, session_id: &str) -> AppResult<Vec<RemoteFileEntry>> {
+    fn list_remote_entries(&mut self, session_id: &str) -> AppResult<Vec<RemoteFileEntry>> {
         let session = self
             .sessions
             .iter()
             .find(|item| item.id == session_id)
             .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?;
+        let runtime = self
+            .runtimes
+            .get(session_id)
+            .ok_or_else(|| AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接"))?;
+        let requested_path = session.current_path.clone().unwrap_or_else(|| ".".into());
 
-        let base = session
-            .current_path
-            .clone()
-            .unwrap_or_else(|| "/home/demo".into());
+        let listing = tauri::async_runtime::block_on(
+            sftp::default_sftp_service().list_directory(&runtime.connection, &requested_path),
+        )?;
 
-        Ok(vec![
-            RemoteFileEntry {
-                name: "deploy".into(),
-                path: format!("{}/deploy", base),
-                kind: "directory".into(),
-                size: 0,
-                modified_at: now_iso(),
-            },
-            RemoteFileEntry {
-                name: "logs".into(),
-                path: format!("{}/logs", base),
-                kind: "directory".into(),
-                size: 0,
-                modified_at: now_iso(),
-            },
-            RemoteFileEntry {
-                name: "README.md".into(),
-                path: format!("{}/README.md", base),
-                kind: "file".into(),
-                size: 1480,
-                modified_at: now_iso(),
-            },
-        ])
+        if let Some(session) = self.sessions.iter_mut().find(|item| item.id == session_id) {
+            session.current_path = Some(listing.canonical_path.clone());
+            session.updated_at = now_iso();
+        }
+
+        Ok(listing.entries)
     }
 
     fn find_connection(&self, connection_id: &str) -> AppResult<&ConnectionProfile> {

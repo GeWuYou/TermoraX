@@ -56,7 +56,11 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
         {state.settings.workspace.rightPanelVisible ? (
           <aside className="workspace-right">
             {state.settings.workspace.rightPanel === "files" ? (
-              <FilePanel currentPath={activeSession?.currentPath ?? null} entries={state.remoteEntries} />
+              <FilePanel
+                currentPath={activeSession?.currentPath ?? null}
+                entries={state.remoteEntries}
+                loading={state.remoteEntriesLoading}
+              />
             ) : null}
             {state.settings.workspace.rightPanel === "snippets" ? <SnippetPanel controller={controller} /> : null}
             {state.settings.workspace.rightPanel === "activity" ? (
