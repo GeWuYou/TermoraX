@@ -99,7 +99,6 @@ export function FilePanel(props: FilePanelProps) {
 
   const statusMessage = useMemo(() => (loading ? t("files.loading") : t("files.empty")), [loading]);
   const pathLabel = t("files.currentPathLabel");
-  const pathDisplay = currentPath ?? t("files.noSession");
   const summaryLabel = loading
     ? t("files.loading")
     : entries.length > 0
@@ -173,20 +172,15 @@ export function FilePanel(props: FilePanelProps) {
   );
 
   return (
-    <Panel title={t("files.title")} subtitle={pathDisplay} className="file-panel">
+    <Panel title={t("files.title")} className="file-panel">
       <div className="file-panel__tabs-row">
-        <button type="button" className="file-panel__tab file-panel__tab--active">
-          {t("files.tab.files")}
-        </button>
-        <button type="button" className="file-panel__tab file-panel__tab--disabled" disabled>
-          {t("files.tab.transfers")}
-        </button>
-      </div>
-
-      <div className="file-panel__meta-row">
         <div>
-          <span className="file-panel__meta-label">{pathLabel}</span>
-          <strong>{pathDisplay}</strong>
+          <button type="button" className="file-panel__tab file-panel__tab--active">
+            {t("files.tab.files")}
+          </button>
+          <button type="button" className="file-panel__tab file-panel__tab--disabled" disabled>
+            {t("files.tab.transfers")}
+          </button>
         </div>
         <p className="file-panel__meta-count">{summaryLabel}</p>
       </div>
@@ -201,7 +195,7 @@ export function FilePanel(props: FilePanelProps) {
           value={pathDraft}
           onChange={(event) => setPathDraft(event.target.value)}
           disabled={!currentPath || loading}
-          placeholder={t("files.pathPlaceholder")}
+          placeholder={currentPath ? t("files.pathPlaceholder") : t("files.noSession")}
           className="file-panel__path-input"
         />
         <div className="file-panel__icon-buttons">

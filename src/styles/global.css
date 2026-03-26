@@ -193,8 +193,9 @@ textarea {
 }
 
 .workspace-bottom-panel {
-  min-height: 220px;
-  max-height: 42vh;
+  height: clamp(320px, 46vh, 560px);
+  min-height: 320px;
+  max-height: 64vh;
 }
 
 .workspace-bottom-panel .panel {
@@ -415,7 +416,16 @@ textarea {
 
 .file-panel__tabs-row {
   display: flex;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.file-panel__tabs-row > div {
+  display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .file-panel__tab {
@@ -435,18 +445,6 @@ textarea {
 .file-panel__tab--disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.file-panel__meta-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
-.file-panel__meta-label {
-  color: var(--muted);
-  font-size: 13px;
 }
 
 .file-panel__meta-count {
@@ -959,7 +957,8 @@ textarea {
   }
 
   .workspace-bottom-panel {
-    max-height: 36vh;
+    height: clamp(300px, 42vh, 500px);
+    max-height: 56vh;
   }
 }
 

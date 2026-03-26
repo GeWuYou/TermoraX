@@ -47,7 +47,7 @@ describe("FilePanel", () => {
     render(<FilePanel entries={[]} rootEntries={[]} currentPath={null} loading />);
 
     expect(screen.getAllByText("正在加载远程目录…").length).toBeGreaterThan(1);
-    expect(screen.getAllByText("尚未选择会话").length).toBeGreaterThan(1);
+    expect(screen.getByPlaceholderText("尚未选择会话")).toBeInTheDocument();
   });
 
   it("shows empty message when no entries", () => {
@@ -55,12 +55,13 @@ describe("FilePanel", () => {
 
     expect(screen.getAllByText("打开会话后会在这里显示远程文件数据。").length).toBeGreaterThan(1);
     expect(screen.getAllByText("当前路径：").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("/home/demo").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("/home/demo")).toBeInTheDocument();
   });
 
   it("displays directory and file rows with formatted size", () => {
     render(<FilePanel entries={[sampleDir, sampleFile]} rootEntries={[rootDir]} currentPath="/home/demo" />);
 
+    expect(screen.queryByRole("heading", { name: "/home/demo" })).not.toBeInTheDocument();
     expect(screen.getAllByText("目录").length).toBeGreaterThan(0);
     expect(screen.getAllByText("文件").length).toBeGreaterThan(0);
     expect(screen.getByText("deploy")).toBeInTheDocument();
