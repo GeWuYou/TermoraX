@@ -1,4 +1,6 @@
 :root {
+  --workspace-min-width: 1360px;
+  --workspace-min-height: 860px;
   font-family: "Segoe UI Variable", "Noto Sans", "Liberation Sans", sans-serif;
   color: #f5f1e8;
   background:
@@ -36,11 +38,13 @@
 html,
 body,
 #root {
+  min-width: var(--workspace-min-width);
   min-height: 100%;
 }
 
 body {
   margin: 0;
+  min-height: var(--workspace-min-height);
 }
 
 button,
@@ -71,7 +75,8 @@ textarea {
 
 .boot-screen,
 .workspace {
-  min-height: 100vh;
+  min-width: var(--workspace-min-width);
+  min-height: max(100vh, var(--workspace-min-height));
 }
 
 .boot-screen {
