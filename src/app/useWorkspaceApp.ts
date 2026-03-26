@@ -131,6 +131,8 @@ export function useWorkspaceApp() {
   const [state, setState] = useState<WorkspaceState>(initialState);
   const remoteEntriesRequestRef = useRef(0);
   const remoteRootEntriesRequestRef = useRef(0);
+  const lastLoadedRemotePathRef = useRef<string | null>(null);
+  const lastLoadedRootSessionRef = useRef<string | null>(null);
   const activeSessionCurrentPath =
     state.sessions.find((item) => item.id === state.activeSessionId)?.currentPath ?? null;
   const filesPanelVisible =
@@ -266,6 +268,8 @@ export function useWorkspaceApp() {
   useEffect(() => {
     remoteEntriesRequestRef.current += 1;
     remoteRootEntriesRequestRef.current += 1;
+    lastLoadedRemotePathRef.current = null;
+    lastLoadedRootSessionRef.current = null;
     setState((current) => ({ ...current, remoteEntries: [], remoteRootEntries: [], remoteEntriesLoading: false }));
   }, [state.activeSessionId]);
 
@@ -274,8 +278,29 @@ export function useWorkspaceApp() {
       return;
     }
 
-    void refreshRemoteEntries(state.activeSessionId);
-    void refreshRemoteRootEntries(state.activeSessionId);
+    const sessionId = state.activeSessionId;
+    const pathKey = `${sessionId}:${activeSessionCurrentPath}`;
+    const shouldRefreshEntries = lastLoadedRemotePathRef.current !== pathKey;
+    const shouldRefreshRoot = lastLoadedRootSessionRef.current !== sessionId;
+
+    if (!shouldRefreshEntries && !shouldRefreshRoot) {
+      return;
+    }
+
+    lastLoadedRemotePathRef.current = pathKey;
+    if (shouldRefreshRoot) {
+      lastLoadedRootSessionRef.current = sessionId;
+    }
+
+    void (async () => {
+      if (shouldRefreshEntries) {
+        await refreshRemoteEntries(sessionId);
+      }
+
+      if (shouldRefreshRoot) {
+        await refreshRemoteRootEntries(sessionId);
+      }
+    })();
   }, [state.activeSessionId, activeSessionCurrentPath, filesPanelVisible, refreshRemoteEntries, refreshRemoteRootEntries]);
 
   useEffect(() => {
@@ -525,14 +550,12 @@ export function useWorkspaceApp() {
         return;
       }
       await runMutation(() => desktopClient.navigateRemoteDirectory(state.activeSessionId as string, path));
-      await refreshRemoteEntries(state.activeSessionId);
     },
     async goRemoteParent() {
       if (!state.activeSessionId) {
         return;
       }
       await runMutation(() => desktopClient.navigateRemoteToParent(state.activeSessionId as string));
-      await refreshRemoteEntries(state.activeSessionId);
     },
     async refreshRemoteEntriesForActiveSession() {
       if (!state.activeSessionId) {

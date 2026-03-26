@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf, client};
@@ -304,8 +304,44 @@ impl AppState {
     }
 
     pub fn list_remote_entries(&self, session_id: &str) -> AppResult<Vec<RemoteFileEntry>> {
-        let mut store = self.store.lock()?;
-        store.list_remote_entries(session_id)
+        debug_log("list_remote_entries.request", format!("session_id={session_id}"));
+        let (runtime, requested_path) = {
+            let mut store = self.store.lock()?;
+            let requested_path = store
+                .sessions
+                .iter()
+                .find(|item| item.id == session_id)
+                .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?
+                .current_path
+                .clone()
+                .unwrap_or_else(|| ".".into());
+            let runtime = store.take_runtime(session_id)?;
+            (runtime, requested_path)
+        };
+        let started_at = Instant::now();
+        let result = tauri::async_runtime::block_on(
+            sftp::default_sftp_service().list_directory(&runtime.connection, &requested_path),
+        );
+        let result = {
+            let mut store = self.store.lock()?;
+            store.restore_runtime(session_id, runtime);
+            match result {
+                Ok(listing) => {
+                    store.update_session_current_path(session_id, &listing.canonical_path)?;
+                    Ok(listing.entries)
+                }
+                Err(error) => Err(error),
+            }
+        };
+        debug_log(
+            "list_remote_entries.done",
+            format!(
+                "session_id={session_id} ok={} elapsed_ms={}",
+                result.is_ok(),
+                started_at.elapsed().as_millis()
+            ),
+        );
+        result
     }
 
     /// Lists a remote directory without mutating the session's tracked working path.
@@ -314,21 +350,95 @@ impl AppState {
         session_id: &str,
         path: &str,
     ) -> AppResult<RemoteDirectoryListing> {
-        let mut store = self.store.lock()?;
-        store.list_remote_entries_at_path(session_id, path)
+        debug_log(
+            "list_remote_entries_at_path.request",
+            format!("session_id={session_id} path={path}"),
+        );
+        let runtime = {
+            let mut store = self.store.lock()?;
+            store.take_runtime(session_id)?
+        };
+        let started_at = Instant::now();
+        let result = tauri::async_runtime::block_on(sftp::default_sftp_service().list_directory(
+            &runtime.connection,
+            path,
+        ));
+        let result = {
+            let mut store = self.store.lock()?;
+            store.restore_runtime(session_id, runtime);
+            result.map(|listing| RemoteDirectoryListing {
+                canonical_path: listing.canonical_path,
+                entries: listing.entries,
+            })
+        };
+        debug_log(
+            "list_remote_entries_at_path.done",
+            format!(
+                "session_id={session_id} path={path} ok={} elapsed_ms={}",
+                result.is_ok(),
+                started_at.elapsed().as_millis()
+            ),
+        );
+        result
     }
 
     /// Navigates the tracked remote working directory to the provided target path.
     pub fn navigate_remote_directory(&self, session_id: &str, path: &str) -> AppResult<BootstrapState> {
+        debug_log(
+            "navigate_remote_directory.request",
+            format!("session_id={session_id} path={path}"),
+        );
+        let runtime = {
+            let mut store = self.store.lock()?;
+            store.take_runtime(session_id)?
+        };
+        let started_at = Instant::now();
+        let result =
+            tauri::async_runtime::block_on(sftp::default_sftp_service().list_directory(&runtime.connection, path));
         let mut store = self.store.lock()?;
-        store.navigate_remote_directory(session_id, path)?;
+        store.restore_runtime(session_id, runtime);
+        let listing = result?;
+        store.update_session_current_path(session_id, &listing.canonical_path)?;
+        debug_log(
+            "navigate_remote_directory.done",
+            format!("session_id={session_id} path={path} elapsed_ms={}", started_at.elapsed().as_millis()),
+        );
         Ok(store.snapshot())
     }
 
     /// Navigates the tracked remote working directory to the parent path.
     pub fn navigate_remote_to_parent(&self, session_id: &str) -> AppResult<BootstrapState> {
+        debug_log(
+            "navigate_remote_to_parent.request",
+            format!("session_id={session_id}"),
+        );
+        let (runtime, parent_path) = {
+            let mut store = self.store.lock()?;
+            let current_path = store
+                .sessions
+                .iter()
+                .find(|item| item.id == session_id)
+                .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?
+                .current_path
+                .clone()
+                .unwrap_or_else(|| "/".into());
+            let parent_path = parent_remote_path(&current_path);
+            let runtime = store.take_runtime(session_id)?;
+            (runtime, parent_path)
+        };
+        let started_at = Instant::now();
+        let result = tauri::async_runtime::block_on(sftp::default_sftp_service().list_directory(
+            &runtime.connection,
+            &parent_path,
+        ));
         let mut store = self.store.lock()?;
-        store.navigate_remote_to_parent(session_id)?;
+        store.restore_runtime(session_id, runtime);
+        let listing = result?;
+        store.update_session_current_path(session_id, &listing.canonical_path)?;
+        debug_log(
+            "navigate_remote_to_parent.done",
+            format!("session_id={session_id} elapsed_ms={}", started_at.elapsed().as_millis()),
+        );
         Ok(store.snapshot())
     }
 
@@ -685,6 +795,27 @@ impl AppStore {
         );
         self.record_activity(format!("已重新连接会话 {}。", session_title));
         self.persist()
+    }
+
+    fn take_runtime(&mut self, session_id: &str) -> AppResult<LiveSessionRuntime> {
+        self.runtimes
+            .remove(session_id)
+            .ok_or_else(|| AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接"))
+    }
+
+    fn restore_runtime(&mut self, session_id: &str, runtime: LiveSessionRuntime) {
+        self.runtimes.insert(session_id.to_string(), runtime);
+    }
+
+    fn update_session_current_path(&mut self, session_id: &str, current_path: &str) -> AppResult<()> {
+        let session = self
+            .sessions
+            .iter_mut()
+            .find(|item| item.id == session_id)
+            .ok_or_else(|| AppError::new("session_not_found", session_id.to_string()))?;
+        session.current_path = Some(current_path.to_string());
+        session.updated_at = now_iso();
+        Ok(())
     }
 
     fn clear_session_output(&mut self, session_id: &str) -> AppResult<()> {
@@ -1195,6 +1326,17 @@ fn now_iso() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().to_string())
         .unwrap_or_else(|_| "0".into())
+}
+
+fn debug_log(event: &str, message: impl AsRef<str>) {
+    if cfg!(debug_assertions) {
+        println!(
+            "[termorax][app_state][{:?}] {} {}",
+            std::thread::current().id(),
+            event,
+            message.as_ref()
+        );
+    }
 }
 
 fn ensure_trust_request_matches(

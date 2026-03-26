@@ -120,6 +120,14 @@ function isTauriRuntime() {
   return typeof window !== "undefined" && typeof window.__TAURI_INTERNALS__ !== "undefined";
 }
 
+function debugClientLog(event: string, payload: Record<string, unknown>) {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  console.info(`[termorax][frontend] ${event}`, payload);
+}
+
 function cloneState(): BootstrapState {
   return structuredClone(mockState);
 }
@@ -950,17 +958,30 @@ export const desktopClient = {
     return callOrMock<BootstrapState>("run_snippet_on_session", { sessionId, snippetId });
   },
   async listRemoteEntries(sessionId: string) {
+    debugClientLog("listRemoteEntries.start", { sessionId });
     const result = await callOrMock<unknown>("list_remote_entries", { sessionId });
-    return normalizeRemoteEntries(result);
+    const entries = normalizeRemoteEntries(result);
+    debugClientLog("listRemoteEntries.done", { sessionId, entryCount: entries.length });
+    return entries;
   },
   async listRemoteEntriesAtPath(sessionId: string, path: string) {
+    debugClientLog("listRemoteEntriesAtPath.start", { sessionId, path });
     const result = await callOrMock<unknown>("list_remote_entries_at_path", { sessionId, path });
-    return normalizeRemoteDirectoryListing(result);
+    const listing = normalizeRemoteDirectoryListing(result);
+    debugClientLog("listRemoteEntriesAtPath.done", {
+      sessionId,
+      path,
+      canonicalPath: listing.canonicalPath,
+      entryCount: listing.entries.length,
+    });
+    return listing;
   },
   navigateRemoteDirectory(sessionId: string, path: string) {
+    debugClientLog("navigateRemoteDirectory.start", { sessionId, path });
     return callOrMock<BootstrapState>("navigate_remote_directory", { sessionId, path });
   },
   navigateRemoteToParent(sessionId: string) {
+    debugClientLog("navigateRemoteToParent.start", { sessionId });
     return callOrMock<BootstrapState>("navigate_remote_to_parent", { sessionId });
   },
   uploadFileToRemote(sessionId: string, localPath: string, remotePath: string) {

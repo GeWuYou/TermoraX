@@ -1,4 +1,9 @@
-use std::{cmp::Ordering, fs, path::Path, time::Duration};
+use std::{
+    cmp::Ordering,
+    fs,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use russh::client;
 use russh_sftp::{
@@ -40,13 +45,40 @@ impl RusshSftpService {
         path: &str,
     ) -> AppResult<ListedRemoteDirectory> {
         let requested_path = normalize_requested_path(path);
+        let started_at = Instant::now();
+        debug_log(
+            "list_directory.start",
+            format!("requested_path={requested_path}"),
+        );
         let sftp = self.open_session(connection).await?;
+        debug_log(
+            "list_directory.session_ready",
+            format!(
+                "requested_path={requested_path} elapsed_ms={}",
+                started_at.elapsed().as_millis()
+            ),
+        );
 
+        debug_log(
+            "list_directory.canonicalize.start",
+            format!("requested_path={requested_path}"),
+        );
         let canonical_path = sftp
             .canonicalize(requested_path.as_str())
             .await
             .map_err(|error| classify_sftp_error("sftp_path_resolve_failed", "解析远程目录失败", error))?;
+        debug_log(
+            "list_directory.canonicalize.done",
+            format!(
+                "requested_path={requested_path} canonical_path={canonical_path} elapsed_ms={}",
+                started_at.elapsed().as_millis()
+            ),
+        );
 
+        debug_log(
+            "list_directory.read_dir.start",
+            format!("canonical_path={canonical_path}"),
+        );
         let mut entries = sftp
             .read_dir(canonical_path.as_str())
             .await
@@ -55,6 +87,14 @@ impl RusshSftpService {
             .collect::<Vec<_>>();
 
         entries.sort_by(compare_remote_entries);
+        debug_log(
+            "list_directory.done",
+            format!(
+                "canonical_path={canonical_path} entry_count={} elapsed_ms={}",
+                entries.len(),
+                started_at.elapsed().as_millis()
+            ),
+        );
 
         Ok(ListedRemoteDirectory {
             canonical_path,
@@ -159,25 +199,53 @@ impl RusshSftpService {
         connection: &client::Handle<TermoraXClientHandler>,
     ) -> AppResult<SftpSession> {
         let timeout = Duration::from_secs(DEFAULT_SFTP_TIMEOUT_SECS);
+        let started_at = Instant::now();
+        debug_log("open_session.start", "opening SFTP subsystem");
         let channel = tokio::time::timeout(timeout, connection.channel_open_session())
             .await
             .map_err(|_| AppError::new("sftp_open_timeout", "SFTP 通道打开超时"))?
             .map_err(|error| classify_ssh_channel_error("sftp_open_failed", "SFTP 通道打开失败", error))?;
+        debug_log(
+            "open_session.channel_ready",
+            format!("elapsed_ms={}", started_at.elapsed().as_millis()),
+        );
 
+        debug_log("open_session.subsystem.start", "requesting sftp subsystem");
         channel
             .request_subsystem(true, "sftp")
             .await
             .map_err(|error| classify_ssh_channel_error("sftp_subsystem_failed", "SFTP 子系统启动失败", error))?;
+        debug_log(
+            "open_session.subsystem_ready",
+            format!("elapsed_ms={}", started_at.elapsed().as_millis()),
+        );
 
-        SftpSession::new_opts(channel.into_stream(), Some(DEFAULT_SFTP_TIMEOUT_SECS))
+        let session = SftpSession::new_opts(channel.into_stream(), Some(DEFAULT_SFTP_TIMEOUT_SECS))
             .await
-            .map_err(|error| classify_sftp_error("sftp_init_failed", "SFTP 初始化失败", error))
+            .map_err(|error| classify_sftp_error("sftp_init_failed", "SFTP 初始化失败", error))?;
+        debug_log(
+            "open_session.done",
+            format!("elapsed_ms={}", started_at.elapsed().as_millis()),
+        );
+
+        Ok(session)
     }
 }
 
 /// Returns the default SFTP service used by the backend runtime.
 pub fn default_sftp_service() -> RusshSftpService {
     RusshSftpService::new()
+}
+
+fn debug_log(event: &str, message: impl AsRef<str>) {
+    if cfg!(debug_assertions) {
+        println!(
+            "[termorax][sftp][{:?}] {} {}",
+            std::thread::current().id(),
+            event,
+            message.as_ref()
+        );
+    }
 }
 
 fn normalize_requested_path(path: &str) -> String {
