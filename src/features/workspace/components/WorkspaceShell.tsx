@@ -14,6 +14,10 @@ interface WorkspaceShellProps {
 export function WorkspaceShell({ controller }: WorkspaceShellProps) {
   const { state, activeSession } = controller;
   const localeState = getLocaleState();
+  const bottomPanelVisible =
+    state.settings.workspace.rightPanelVisible && state.settings.workspace.rightPanel === "files";
+  const sidePanelVisible =
+    state.settings.workspace.rightPanelVisible && state.settings.workspace.rightPanel !== "files";
 
   return (
     <div className={`workspace workspace--${state.settings.terminal.theme}`}>
@@ -51,25 +55,29 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
         </aside>
 
         <main className="workspace-main">
-          <TerminalWorkspace controller={controller} />
+          <div className="workspace-main-stack">
+            <TerminalWorkspace controller={controller} />
+            {bottomPanelVisible ? (
+              <section className="workspace-bottom-panel">
+                <FilePanel
+                  currentPath={activeSession?.currentPath ?? null}
+                  entries={state.remoteEntries}
+                  loading={state.remoteEntriesLoading}
+                  onOpenDirectory={controller.openRemoteDirectory}
+                  onGoParent={controller.goRemoteParent}
+                  onUpload={controller.uploadFileToCurrentDirectory}
+                  onCreateDirectory={controller.createRemoteDirectory}
+                  onDownload={controller.downloadRemoteFile}
+                  onRename={controller.renameRemoteEntry}
+                  onDelete={controller.deleteRemoteEntry}
+                />
+              </section>
+            ) : null}
+          </div>
         </main>
 
-        {state.settings.workspace.rightPanelVisible ? (
+        {sidePanelVisible ? (
           <aside className="workspace-right">
-            {state.settings.workspace.rightPanel === "files" ? (
-              <FilePanel
-                currentPath={activeSession?.currentPath ?? null}
-                entries={state.remoteEntries}
-                loading={state.remoteEntriesLoading}
-                onOpenDirectory={controller.openRemoteDirectory}
-                onGoParent={controller.goRemoteParent}
-                onUpload={controller.uploadFileToCurrentDirectory}
-                onCreateDirectory={controller.createRemoteDirectory}
-                onDownload={controller.downloadRemoteFile}
-                onRename={controller.renameRemoteEntry}
-                onDelete={controller.deleteRemoteEntry}
-              />
-            ) : null}
             {state.settings.workspace.rightPanel === "transfers" ? (
               <TransferPanel
                 tasks={state.transfers}
