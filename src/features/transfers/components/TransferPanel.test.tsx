@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import { TransferPanel } from "./TransferPanel";
 import type { TransferTask } from "../../../entities/domain";
 
@@ -30,6 +31,19 @@ const tasks: TransferTask[] = [
     finishedAt: "2026-01-01T12:01:05.000Z",
     message: null,
   },
+  {
+    id: "task-3",
+    sessionId: "session-1",
+    direction: "download",
+    status: "failed",
+    localPath: "E:/logs/error.log",
+    remotePath: "/srv/error.log",
+    bytesTotal: 0,
+    bytesTransferred: 0,
+    startedAt: "2026-01-01T12:02:00.000Z",
+    finishedAt: "2026-01-01T12:02:05.000Z",
+    message: "网络错误",
+  },
 ];
 
 describe("TransferPanel", () => {
@@ -55,5 +69,22 @@ describe("TransferPanel", () => {
     const fill = document.querySelector(".transfer-progress__fill") as HTMLElement | null;
     expect(fill).not.toBeNull();
     expect(fill?.style.width).toBe("25%");
+  });
+
+  it("shows retry button for failed tasks and clear completed action", async () => {
+    const retry = vi.fn();
+    const clearCompleted = vi.fn();
+    render(<TransferPanel tasks={tasks} onRetry={retry} onClearCompleted={clearCompleted} />);
+
+    expect(screen.getByRole("button", { name: "清理已完成" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "清理已完成" })).not.toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "清理已完成" }));
+    expect(clearCompleted).toHaveBeenCalled();
+
+    const retryButtons = screen.getAllByRole("button", { name: "重试" });
+    expect(retryButtons.length).toBeGreaterThan(0);
+    await userEvent.click(retryButtons[0]);
+    expect(retry).toHaveBeenCalledWith(expect.objectContaining({ id: "task-3" }));
   });
 });

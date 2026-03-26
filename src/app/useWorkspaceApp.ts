@@ -13,6 +13,7 @@ import type {
   RightPanelId,
   SessionEvent,
   SessionTab,
+  TransferTask,
 } from "../entities/domain";
 import { desktopClient } from "../integrations/tauri/client";
 import { defaultAppSettings } from "../features/settings/model/defaults";
@@ -416,6 +417,15 @@ export function useWorkspaceApp() {
         return;
       }
       await runMutation(() => desktopClient.navigateRemoteToParent(state.activeSessionId as string));
+    },
+    async retryTransfer(task: TransferTask) {
+      await runMutation(() => desktopClient.retryTransfer(task.sessionId, task.id));
+    },
+    async clearCompletedTransfers() {
+      if (!state.activeSessionId) {
+        return;
+      }
+      await runMutation(() => desktopClient.clearCompletedTransfers(state.activeSessionId as string));
     },
     async uploadFileToCurrentDirectory() {
       const sessionId = state.activeSessionId;

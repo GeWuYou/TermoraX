@@ -698,6 +698,43 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
       recordActivity(`已删除远程路径 ${path}`);
       return cloneState() as T;
     }
+    case "retry_transfer": {
+      const taskId = String(args?.taskId ?? "");
+      const task = mockState.transfers.find((item) => item.id === taskId);
+      if (!task) {
+        throw new Error("未找到传输任务");
+      }
+      if (task.status !== "failed") {
+        throw new Error("只有失败的传输任务才支持重试");
+      }
+      mockState = {
+        ...mockState,
+        transfers: mockState.transfers.map((item) =>
+          item.id === taskId
+            ? ({
+                ...item,
+                status: "running",
+                bytesTransferred: 0,
+                message: null,
+                startedAt: new Date().toISOString(),
+                finishedAt: null,
+              } satisfies TransferTask)
+            : item,
+        ),
+      };
+      recordActivity(`已重试传输任务 ${taskId}`);
+      return cloneState() as T;
+    }
+    case "clear_completed_transfers": {
+      const taskCount = mockState.transfers.length;
+      mockState = {
+        ...mockState,
+        transfers: mockState.transfers.filter((task) => task.status === "running"),
+      };
+      const cleared = taskCount - mockState.transfers.length;
+      recordActivity(`已清理 ${cleared} 个完成任务`);
+      return cloneState() as T;
+    }
     default:
       throw new Error(`Unsupported mock command: ${command}`);
   }
@@ -772,6 +809,18 @@ export const desktopClient = {
   },
   downloadFileFromRemote(sessionId: string, remotePath: string, localPath: string) {
     return callOrMock<BootstrapState>("download_file_from_remote", { sessionId, remotePath, localPath });
+  },
+  retryTransfer(sessionId: string, taskId: string) {
+    if (isTauriRuntime()) {
+      return Promise.reject(new Error("传输重试当前仅支持模拟模式"));
+    }
+    return callOrMock<BootstrapState>("retry_transfer", { sessionId, taskId });
+  },
+  clearCompletedTransfers(sessionId: string) {
+    if (isTauriRuntime()) {
+      return Promise.reject(new Error("清理传输任务当前仅支持模拟模式"));
+    }
+    return callOrMock<BootstrapState>("clear_completed_transfers", { sessionId });
   },
   createRemoteDirectory(sessionId: string, path: string) {
     return callOrMock<BootstrapState>("create_remote_directory", { sessionId, path });

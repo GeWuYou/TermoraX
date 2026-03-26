@@ -134,6 +134,8 @@ function createController(session: SessionTab | null = sampleSession, overrides?
     goRemoteParent: vi.fn(),
     uploadFileToCurrentDirectory: vi.fn(),
     downloadRemoteFile: vi.fn(),
+    retryTransfer: vi.fn(),
+    clearCompletedTransfers: vi.fn(),
     createRemoteDirectory: vi.fn(),
     renameRemoteEntry: vi.fn(),
     deleteRemoteEntry: vi.fn(),

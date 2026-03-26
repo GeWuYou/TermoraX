@@ -71,7 +71,11 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
               />
             ) : null}
             {state.settings.workspace.rightPanel === "transfers" ? (
-              <TransferPanel tasks={state.transfers} />
+              <TransferPanel
+                tasks={state.transfers}
+                onRetry={controller.retryTransfer}
+                onClearCompleted={controller.clearCompletedTransfers}
+              />
             ) : null}
             {state.settings.workspace.rightPanel === "snippets" ? <SnippetPanel controller={controller} /> : null}
             {state.settings.workspace.rightPanel === "activity" ? (

@@ -136,6 +136,8 @@ const messages: Record<AppLocale, MessageSchema> = {
     "transfers.status.running": "传输中",
     "transfers.status.succeeded": "已完成",
     "transfers.status.failed": "失败",
+    "transfers.retry": "重试",
+    "transfers.clearCompleted": "清理已完成",
     "transfers.cancel": "取消",
     "snippets.title": "片段",
     "snippets.subtitle": "{count} 个复用命令",

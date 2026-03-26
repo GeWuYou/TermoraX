@@ -6,6 +6,8 @@ import { formatTimestamp } from "../../../shared/lib/time";
 interface TransferPanelProps {
   tasks: TransferTask[];
   loading?: boolean;
+  onRetry?: (task: TransferTask) => void;
+  onClearCompleted?: () => void;
 }
 
 const statusLabels = {
@@ -22,12 +24,18 @@ function getTransferProgress(task: TransferTask): number {
   return Math.max(0, Math.min(100, Math.round((task.bytesTransferred / task.bytesTotal) * 100)));
 }
 
-export const TransferPanel = memo(function TransferPanel({ tasks, loading = false }: TransferPanelProps) {
+export const TransferPanel = memo(function TransferPanel({
+  tasks,
+  loading = false,
+  onRetry,
+  onClearCompleted,
+}: TransferPanelProps) {
   const summary = loading
     ? t("transfers.loading")
     : tasks.length > 0
       ? t("transfers.taskCount", { count: tasks.length })
       : t("transfers.empty");
+  const hasCompleted = tasks.some((task) => task.status === "succeeded" || task.status === "failed");
 
   return (
     <section className="panel transfer-panel">
@@ -36,6 +44,19 @@ export const TransferPanel = memo(function TransferPanel({ tasks, loading = fals
           <p className="panel__eyebrow">{t("transfers.title")}</p>
           <h2 className="panel__title">{summary}</h2>
         </div>
+        {onClearCompleted ? (
+          <div>
+            <button
+              type="button"
+              className="ghost-button transfer-row__action"
+              onClick={onClearCompleted}
+              disabled={loading || !hasCompleted}
+              aria-disabled={loading || !hasCompleted}
+            >
+              {t("transfers.clearCompleted")}
+            </button>
+          </div>
+        ) : null}
       </header>
       <div className="panel__body">
         {loading ? (
@@ -68,6 +89,17 @@ export const TransferPanel = memo(function TransferPanel({ tasks, loading = fals
                     {formatTimestamp(task.finishedAt ?? task.startedAt)}
                   </span>
                   {task.message ? <span>{task.message}</span> : null}
+                  {task.status === "failed" && onRetry ? (
+                    <button
+                      type="button"
+                      className="ghost-button transfer-row__action"
+                      onClick={() => onRetry(task)}
+                      disabled={loading}
+                      aria-disabled={loading}
+                    >
+                      {t("transfers.retry")}
+                    </button>
+                  ) : null}
                 </div>
               </article>
             ))}

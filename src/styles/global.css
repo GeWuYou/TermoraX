@@ -270,7 +270,16 @@ textarea {
   color: var(--muted);
 }
 
-.transfer-row__cancel {
+.transfer-row__action {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text);
+}
+
+.transfer-row__action {
   padding: 4px 10px;
   font-size: 12px;
 }

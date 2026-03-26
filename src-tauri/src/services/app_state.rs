@@ -315,6 +315,20 @@ impl AppState {
         Ok(store.snapshot())
     }
 
+    /// Retries a previously failed transfer task by creating a new transfer attempt.
+    pub fn retry_transfer_task(&self, task_id: &str) -> AppResult<BootstrapState> {
+        let mut store = self.store.lock()?;
+        store.retry_transfer_task(task_id)?;
+        Ok(store.snapshot())
+    }
+
+    /// Removes finished transfer tasks while keeping actively running tasks visible.
+    pub fn clear_completed_transfer_tasks(&self) -> AppResult<BootstrapState> {
+        let mut store = self.store.lock()?;
+        store.clear_completed_transfer_tasks();
+        Ok(store.snapshot())
+    }
+
     fn spawn_session_reader(&self, app_handle: AppHandle, session_id: String, mut reader: ChannelReadHalf) {
         let store = Arc::clone(&self.store);
 
@@ -347,6 +361,14 @@ struct AppStore {
     activity: Vec<ActivityEntry>,
     transfers: Vec<TransferTask>,
     runtimes: HashMap<String, LiveSessionRuntime>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RetryTransferRequest {
+    session_id: String,
+    direction: String,
+    local_path: String,
+    remote_path: String,
 }
 
 impl AppStore {
@@ -785,6 +807,33 @@ impl AppStore {
         Ok(())
     }
 
+    fn retry_transfer_task(&mut self, task_id: &str) -> AppResult<()> {
+        let request = self.build_retry_transfer_request(task_id)?;
+
+        match request.direction.as_str() {
+            "upload" => {
+                self.upload_file_to_remote(&request.session_id, &request.local_path, &request.remote_path)
+            }
+            "download" => {
+                self.download_file_from_remote(&request.session_id, &request.remote_path, &request.local_path)
+            }
+            _ => Err(AppError::new(
+                "transfer_task_invalid_direction",
+                "传输任务方向无效，无法重试",
+            )),
+        }
+    }
+
+    fn clear_completed_transfer_tasks(&mut self) {
+        let before = self.transfers.len();
+        self.transfers.retain(|task| task.status == "running");
+        let removed = before.saturating_sub(self.transfers.len());
+
+        if removed > 0 {
+            self.record_activity(format!("已清理 {} 个已完成传输任务。", removed));
+        }
+    }
+
     fn find_connection(&self, connection_id: &str) -> AppResult<&ConnectionProfile> {
         self.persisted
             .connections
@@ -946,6 +995,30 @@ impl AppStore {
             task.finished_at = Some(now_iso());
             task.message = Some(message);
         }
+    }
+
+    // Retry is only valid for finished failed tasks. The returned request is
+    // separated from execution so validation can be tested without a live SSH runtime.
+    fn build_retry_transfer_request(&self, task_id: &str) -> AppResult<RetryTransferRequest> {
+        let task = self
+            .transfers
+            .iter()
+            .find(|item| item.id == task_id)
+            .ok_or_else(|| AppError::new("transfer_task_not_found", task_id.to_string()))?;
+
+        if task.status != "failed" {
+            return Err(AppError::new(
+                "transfer_task_not_retryable",
+                "仅失败的传输任务支持重试",
+            ));
+        }
+
+        Ok(RetryTransferRequest {
+            session_id: task.session_id.clone(),
+            direction: task.direction.clone(),
+            local_path: task.local_path.clone(),
+            remote_path: task.remote_path.clone(),
+        })
     }
 }
 
@@ -1126,6 +1199,61 @@ mod tests {
         assert_eq!(store.transfers.len(), 50);
         assert_eq!(store.transfers[0].local_path, "C:/tmp/file-54.txt");
         assert_eq!(store.transfers[49].local_path, "C:/tmp/file-5.txt");
+    }
+
+    #[test]
+    fn retry_transfer_request_requires_failed_task() {
+        let dir = temp_config_dir("transfer-retryable");
+        let mut store = AppStore::load(dir).expect("store should initialize");
+
+        let failed_task_id =
+            store.start_transfer_task("session-1", "upload", "C:/tmp/demo.log", "/home/demo/demo.log", 128);
+        store.finish_transfer_task_failure(&failed_task_id, "failed".into());
+        let running_task_id =
+            store.start_transfer_task("session-1", "download", "D:/tmp/demo.log", "/srv/demo.log", 128);
+
+        let request = store
+            .build_retry_transfer_request(&failed_task_id)
+            .expect("failed task should be retryable");
+        assert_eq!(request.session_id, "session-1");
+        assert_eq!(request.direction, "upload");
+        assert_eq!(request.local_path, "C:/tmp/demo.log");
+        assert_eq!(request.remote_path, "/home/demo/demo.log");
+
+        let error = store
+            .build_retry_transfer_request(&running_task_id)
+            .expect_err("running task should not be retryable");
+        assert_eq!(error.code, "transfer_task_not_retryable");
+
+        let missing = store
+            .build_retry_transfer_request("missing-task")
+            .expect_err("missing task should fail");
+        assert_eq!(missing.code, "transfer_task_not_found");
+    }
+
+    #[test]
+    fn clear_completed_transfer_tasks_keeps_running_only() {
+        let dir = temp_config_dir("transfer-clear-completed");
+        let mut store = AppStore::load(dir).expect("store should initialize");
+
+        let running_task_id =
+            store.start_transfer_task("session-1", "upload", "C:/tmp/live.log", "/home/demo/live.log", 32);
+        let succeeded_task_id =
+            store.start_transfer_task("session-1", "upload", "C:/tmp/done.log", "/home/demo/done.log", 64);
+        store.finish_transfer_task_success(&succeeded_task_id, 64);
+        let failed_task_id =
+            store.start_transfer_task("session-1", "download", "D:/tmp/fail.log", "/srv/fail.log", 0);
+        store.finish_transfer_task_failure(&failed_task_id, "failed".into());
+
+        store.clear_completed_transfer_tasks();
+
+        assert_eq!(store.transfers.len(), 1);
+        assert_eq!(store.transfers[0].id, running_task_id);
+        assert_eq!(store.transfers[0].status, "running");
+        assert!(store
+            .activity
+            .iter()
+            .any(|entry| entry.title.contains("已清理 2 个已完成传输任务")));
     }
 
     #[test]

@@ -238,3 +238,18 @@ pub fn delete_remote_entry(
 ) -> AppResult<BootstrapState> {
     state.delete_remote_entry(&session_id, &path, is_directory)
 }
+
+/// Retries a previously failed transfer task.
+#[tauri::command]
+pub fn retry_transfer_task(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> AppResult<BootstrapState> {
+    state.retry_transfer_task(&task_id)
+}
+
+/// Clears completed transfer tasks from the transfer center.
+#[tauri::command]
+pub fn clear_completed_transfer_tasks(state: State<'_, AppState>) -> AppResult<BootstrapState> {
+    state.clear_completed_transfer_tasks()
+}

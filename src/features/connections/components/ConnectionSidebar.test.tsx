@@ -96,6 +96,8 @@ function createController(overrides?: Partial<WorkspaceController>): WorkspaceCo
     goRemoteParent: async () => undefined,
     uploadFileToCurrentDirectory: async () => undefined,
     downloadRemoteFile: async () => undefined,
+    retryTransfer: async () => undefined,
+    clearCompletedTransfers: async () => undefined,
     createRemoteDirectory: async () => undefined,
     renameRemoteEntry: async () => undefined,
     deleteRemoteEntry: async () => undefined,
