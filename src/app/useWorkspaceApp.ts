@@ -419,13 +419,10 @@ export function useWorkspaceApp() {
       await runMutation(() => desktopClient.navigateRemoteToParent(state.activeSessionId as string));
     },
     async retryTransfer(task: TransferTask) {
-      await runMutation(() => desktopClient.retryTransfer(task.sessionId, task.id));
+      await runMutation(() => desktopClient.retryTransferTask(task.id));
     },
     async clearCompletedTransfers() {
-      if (!state.activeSessionId) {
-        return;
-      }
-      await runMutation(() => desktopClient.clearCompletedTransfers(state.activeSessionId as string));
+      await runMutation(() => desktopClient.clearCompletedTransferTasks());
     },
     async uploadFileToCurrentDirectory() {
       const sessionId = state.activeSessionId;

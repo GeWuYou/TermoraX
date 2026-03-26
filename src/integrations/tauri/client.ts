@@ -698,7 +698,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
       recordActivity(`已删除远程路径 ${path}`);
       return cloneState() as T;
     }
-    case "retry_transfer": {
+    case "retry_transfer_task": {
       const taskId = String(args?.taskId ?? "");
       const task = mockState.transfers.find((item) => item.id === taskId);
       if (!task) {
@@ -725,7 +725,7 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
       recordActivity(`已重试传输任务 ${taskId}`);
       return cloneState() as T;
     }
-    case "clear_completed_transfers": {
+    case "clear_completed_transfer_tasks": {
       const taskCount = mockState.transfers.length;
       mockState = {
         ...mockState,
@@ -810,18 +810,6 @@ export const desktopClient = {
   downloadFileFromRemote(sessionId: string, remotePath: string, localPath: string) {
     return callOrMock<BootstrapState>("download_file_from_remote", { sessionId, remotePath, localPath });
   },
-  retryTransfer(sessionId: string, taskId: string) {
-    if (isTauriRuntime()) {
-      return Promise.reject(new Error("传输重试当前仅支持模拟模式"));
-    }
-    return callOrMock<BootstrapState>("retry_transfer", { sessionId, taskId });
-  },
-  clearCompletedTransfers(sessionId: string) {
-    if (isTauriRuntime()) {
-      return Promise.reject(new Error("清理传输任务当前仅支持模拟模式"));
-    }
-    return callOrMock<BootstrapState>("clear_completed_transfers", { sessionId });
-  },
   createRemoteDirectory(sessionId: string, path: string) {
     return callOrMock<BootstrapState>("create_remote_directory", { sessionId, path });
   },
@@ -830,6 +818,12 @@ export const desktopClient = {
   },
   deleteRemoteEntry(sessionId: string, path: string, isDirectory: boolean) {
     return callOrMock<BootstrapState>("delete_remote_entry", { sessionId, path, isDirectory });
+  },
+  retryTransferTask(taskId: string) {
+    return callOrMock<BootstrapState>("retry_transfer_task", { taskId });
+  },
+  clearCompletedTransferTasks() {
+    return callOrMock<BootstrapState>("clear_completed_transfer_tasks");
   },
   subscribeSessionEvents(listener: (event: SessionEvent) => void) {
     if (!isTauriRuntime()) {
