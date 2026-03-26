@@ -13,8 +13,10 @@
     "windows": [
       {
         "title": "termorax",
-        "width": 800,
-        "height": 600
+        "width": 1280,
+        "height": 820,
+        "minWidth": 1180,
+        "minHeight": 760
       }
     ],
     "security": {
