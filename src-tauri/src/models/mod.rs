@@ -60,6 +60,31 @@ pub struct ConnectionExportResult {
     pub exported_at: String,
 }
 
+/// A persisted trusted SSH host fingerprint owned by the backend state file.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustedHost {
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub trusted_at: String,
+}
+
+/// Result returned after inspecting a remote SSH host key before opening a session.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostFingerprintInspection {
+    pub connection_id: String,
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub trust_status: String,
+    pub trusted_fingerprint: Option<String>,
+    pub inspected_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTab {
@@ -208,6 +233,8 @@ pub struct PersistedState {
     pub connections: Vec<ConnectionProfile>,
     pub snippets: Vec<CommandSnippet>,
     pub settings: AppSettings,
+    #[serde(default)]
+    pub trusted_hosts: Vec<TrustedHost>,
 }
 
 impl Default for PersistedState {
@@ -266,6 +293,7 @@ impl Default for PersistedState {
                 },
             ],
             settings: AppSettings::default(),
+            trusted_hosts: Vec::new(),
         }
     }
 }

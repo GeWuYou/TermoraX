@@ -4,7 +4,8 @@ use crate::{
     error::AppResult,
     models::{
         AppSettings, BootstrapState, CommandSnippet, ConnectionExportResult, ConnectionImportResult,
-        ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, RemoteFileEntry,
+        ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, HostFingerprintInspection,
+        RemoteFileEntry,
     },
     services::app_state::AppState,
 };
@@ -91,6 +92,25 @@ pub fn save_settings(state: State<'_, AppState>, settings: AppSettings) -> AppRe
 #[tauri::command]
 pub fn reset_settings(state: State<'_, AppState>) -> AppResult<BootstrapState> {
     state.reset_settings()
+}
+
+/// Inspects the current SSH host fingerprint for a saved connection.
+#[tauri::command]
+pub fn inspect_connection_host(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> AppResult<HostFingerprintInspection> {
+    state.inspect_connection_host(&connection_id)
+}
+
+/// Stores the currently inspected fingerprint as a trusted host entry.
+#[tauri::command]
+pub fn trust_connection_host(
+    state: State<'_, AppState>,
+    connection_id: String,
+    fingerprint: String,
+) -> AppResult<HostFingerprintInspection> {
+    state.trust_connection_host(&connection_id, &fingerprint)
 }
 
 #[tauri::command]

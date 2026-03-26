@@ -106,6 +106,8 @@ function buildState(session: SessionTab | null): WorkspaceViewState {
     connectionDuplicateWarning: null,
     connectionTestResult: null,
     connectionStatusMessage: null,
+    pendingHostVerification: null,
+    lastHostInspection: null,
   };
 }
 
@@ -124,6 +126,8 @@ function createController(session: SessionTab | null = sampleSession, overrides?
     importConnectionProfilesFromJson: vi.fn(),
     exportConnectionProfiles: vi.fn(),
     openSession: vi.fn(),
+    trustPendingHost: vi.fn(),
+    dismissPendingHostVerification: vi.fn(),
     reconnectSession: vi.fn(),
     closeSession: vi.fn(),
     closeOtherSessions: vi.fn(),

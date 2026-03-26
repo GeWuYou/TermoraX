@@ -7,6 +7,8 @@ import type {
   ConnectionImportResult,
   ConnectionProfile,
   ConnectionTestResult,
+  HostFingerprintInspection,
+  HostTrustStatus,
   RemoteFileEntry,
   SessionEvent,
   TransferTask,
@@ -74,6 +76,43 @@ let mockState: BootstrapState = {
   transfers: [],
 };
 
+const mockTrustedHosts: Record<string, string> = {};
+
+function hostKeyCacheKey(connection: ConnectionProfile): string {
+  return `${connection.host}:${connection.port}`;
+}
+
+function mockFingerprintForConnection(connection: ConnectionProfile): string {
+  const normalizedId = connection.id.replace(/[^a-zA-Z0-9]/g, "");
+  return `SHA256:${normalizedId}-fingerprint`;
+}
+
+function buildMockInspection(connectionId: string): HostFingerprintInspection {
+  const connection = mockState.connections.find((item) => item.id === connectionId);
+
+  if (!connection) {
+    throw new Error("未找到连接配置");
+  }
+
+  const fingerprint = mockFingerprintForConnection(connection);
+  const trustedFingerprint = mockTrustedHosts[hostKeyCacheKey(connection)] ?? null;
+  let trustStatus: HostTrustStatus = "untrusted";
+
+  if (trustedFingerprint) {
+    trustStatus = trustedFingerprint === fingerprint ? "trusted" : "mismatch";
+  }
+
+  return {
+    connectionId,
+    host: connection.host,
+    port: connection.port,
+    algorithm: "ssh-ed25519",
+    fingerprint,
+    trustStatus,
+    trustedFingerprint,
+    inspectedAt: new Date().toISOString(),
+  };
+}
 const mockRemoteFileSystem: Record<string, RemoteFileEntry[]> = {};
 
 function isTauriRuntime() {
@@ -498,6 +537,32 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
       mockState = { ...mockState, settings: defaultAppSettings };
       recordActivity(t("mock.resetSettings"));
       return cloneState() as T;
+    case "inspect_connection_host": {
+      const connectionId = String(args?.connectionId ?? "");
+      return buildMockInspection(connectionId) as T;
+    }
+    case "trust_connection_host": {
+      const connectionId = String(args?.connectionId ?? "");
+      const fingerprint = String(args?.fingerprint ?? "");
+      const inspection = buildMockInspection(connectionId);
+
+      if (inspection.fingerprint !== fingerprint) {
+        throw new Error("主机指纹已变化，请重新确认。");
+      }
+
+      const connection = mockState.connections.find((item) => item.id === connectionId);
+      if (!connection) {
+        throw new Error("未找到连接配置");
+      }
+
+      mockTrustedHosts[hostKeyCacheKey(connection)] = fingerprint;
+
+      return {
+        ...inspection,
+        trustStatus: "trusted",
+        trustedFingerprint: fingerprint,
+      } as T;
+    }
     case "open_session":
       return createMockSession(args?.connectionId as string) as T;
     case "reconnect_session": {
@@ -770,6 +835,12 @@ export const desktopClient = {
   },
   resetSettings() {
     return callOrMock<BootstrapState>("reset_settings");
+  },
+  inspectConnectionHost(connectionId: string) {
+    return callOrMock<HostFingerprintInspection>("inspect_connection_host", { connectionId });
+  },
+  trustConnectionHost(connectionId: string, fingerprint: string) {
+    return callOrMock<HostFingerprintInspection>("trust_connection_host", { connectionId, fingerprint });
   },
   openSession(connectionId: string) {
     return callOrMock<BootstrapState>("open_session", { connectionId });

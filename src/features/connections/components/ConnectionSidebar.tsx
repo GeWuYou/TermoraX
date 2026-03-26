@@ -36,6 +36,14 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
     [state.connections, searchTerm],
   );
   const duplicateEntries = detectDuplicateConnections(state.connections);
+  const pendingHostVerification =
+    selectedConnection && state.pendingHostVerification?.connectionId === selectedConnection.id
+      ? state.pendingHostVerification
+      : null;
+  const lastHostInspection =
+    pendingHostVerification && state.lastHostInspection?.connectionId === pendingHostVerification.connectionId
+      ? state.lastHostInspection
+      : null;
 
   function buildDraftProfile(): Partial<ConnectionProfile> {
     return {
@@ -403,6 +411,48 @@ export function ConnectionSidebar({ controller }: ConnectionSidebarProps) {
               </button>
             ) : null}
           </div>
+          {pendingHostVerification ? (
+            <div className="host-verification-panel">
+              <strong>{t("connections.hostInspectionTitle")}</strong>
+              <p>
+                {t("connections.hostInspectionMessage", {
+                  host: pendingHostVerification.host,
+                  port: pendingHostVerification.port,
+                  algorithm: pendingHostVerification.algorithm,
+                })}
+              </p>
+              <p className="host-verification-panel__fingerprint">
+                {t("connections.hostInspectionFingerprint", { fingerprint: pendingHostVerification.fingerprint })}
+              </p>
+              {lastHostInspection?.trustedFingerprint ? (
+                <div className="warning-banner">
+                  {t("connections.hostInspectionTrustedFingerprint", {
+                    fingerprint: lastHostInspection.trustedFingerprint,
+                  })}
+                </div>
+              ) : null}
+              {lastHostInspection?.trustStatus === "mismatch" ? (
+                <div className="warning-banner">{t("connections.hostInspectionMismatch")}</div>
+              ) : null}
+              <p className="info-banner">{t("connections.hostInspectionWarning")}</p>
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  onClick={() => void controller.trustPendingHost()}
+                  type="button"
+                >
+                  {t("connections.hostInspectionTrust")}
+                </button>
+                <button
+                  className="ghost-button"
+                  onClick={() => controller.dismissPendingHostVerification()}
+                  type="button"
+                >
+                  {t("connections.hostInspectionCancel")}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </form>
 
         {confirmDeleteId ? (

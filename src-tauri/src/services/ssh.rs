@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -8,12 +8,15 @@ use russh::{
     ChannelReadHalf, ChannelWriteHalf,
     Disconnect,
     client,
-    keys::{PrivateKey, PrivateKeyWithHashAlg},
+    keys::{
+        PrivateKey, PrivateKeyWithHashAlg,
+        ssh_key::{HashAlg, PublicKey},
+    },
 };
 
 use crate::{
     error::{AppError, AppResult},
-    models::ConnectionProfile,
+    models::{ConnectionProfile, TrustedHost},
 };
 
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -79,19 +82,69 @@ pub struct OpenedSshShell {
     pub writer: ChannelWriteHalf<client::Msg>,
 }
 
+/// Captured SSH host key details returned by the preflight inspection flow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InspectedSshHostKey {
+    pub algorithm: String,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone)]
+enum HostKeyVerificationMode {
+    AcceptAny,
+    RequireFingerprint { expected_fingerprint: String },
+}
+
 /// Minimal russh client handler used by TermoraX.
-#[derive(Debug, Default)]
-pub struct TermoraXClientHandler;
+#[derive(Debug)]
+pub struct TermoraXClientHandler {
+    verification_mode: HostKeyVerificationMode,
+    observed_host_key: Arc<Mutex<Option<InspectedSshHostKey>>>,
+}
+
+impl TermoraXClientHandler {
+    fn accept_any(observed_host_key: Arc<Mutex<Option<InspectedSshHostKey>>>) -> Self {
+        Self {
+            verification_mode: HostKeyVerificationMode::AcceptAny,
+            observed_host_key,
+        }
+    }
+
+    fn require_fingerprint(
+        expected_fingerprint: impl Into<String>,
+        observed_host_key: Arc<Mutex<Option<InspectedSshHostKey>>>,
+    ) -> Self {
+        Self {
+            verification_mode: HostKeyVerificationMode::RequireFingerprint {
+                expected_fingerprint: expected_fingerprint.into(),
+            },
+            observed_host_key,
+        }
+    }
+}
 
 impl client::Handler for TermoraXClientHandler {
     type Error = russh::Error;
 
-    /// Accepts the host key for now. Trust management is planned separately.
+    /// Captures the server host key and optionally enforces a fingerprint match.
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        Ok(true)
+        let inspected = inspect_public_key(server_public_key);
+
+        if let Ok(mut observed_host_key) = self.observed_host_key.lock() {
+            *observed_host_key = Some(inspected.clone());
+        }
+
+        let accepted = match &self.verification_mode {
+            HostKeyVerificationMode::AcceptAny => true,
+            HostKeyVerificationMode::RequireFingerprint { expected_fingerprint } => {
+                inspected.fingerprint == *expected_fingerprint
+            }
+        };
+
+        Ok(accepted)
     }
 }
 
@@ -193,10 +246,46 @@ impl RusshSshService {
         self.prepare_connection(profile, credentials)
     }
 
-    /// Opens a real PTY-backed interactive shell over SSH.
+    /// Connects far enough to capture the remote host key without authenticating or opening a shell.
+    pub async fn inspect_host(&self, profile: &ConnectionProfile) -> AppResult<InspectedSshHostKey> {
+        let plan = self.build_connect_plan(profile)?;
+        let client_config = self.build_client_config(&plan);
+        let timeout = Duration::from_secs(plan.connect_timeout_secs);
+        let address = format!("{}:{}", plan.host, plan.port);
+        let observed_host_key = Arc::new(Mutex::new(None));
+
+        let connection = tokio::time::timeout(
+            timeout,
+            client::connect(
+                client_config,
+                address.as_str(),
+                TermoraXClientHandler::accept_any(Arc::clone(&observed_host_key)),
+            ),
+        )
+        .await
+        .map_err(|_| AppError::new("ssh_connect_timeout", "SSH 连接超时"))?
+        .map_err(|error| classify_ssh_error("ssh_connect_failed", "SSH 连接失败", error))?;
+
+        let inspected_host_key = take_observed_host_key(&observed_host_key)?;
+
+        let _ = tokio::time::timeout(
+            timeout,
+            connection.disconnect(
+                Disconnect::ByApplication,
+                "Completed TermoraX host key inspection",
+                "en-US",
+            ),
+        )
+        .await;
+
+        Ok(inspected_host_key)
+    }
+
+    /// Opens a real PTY-backed interactive shell over SSH after the host key is trusted.
     pub async fn open_shell_session(
         &self,
         profile: &ConnectionProfile,
+        trusted_host: &TrustedHost,
         cols: u16,
         rows: u16,
     ) -> AppResult<OpenedSshShell> {
@@ -210,18 +299,30 @@ impl RusshSshService {
         let prepared = self.prepare_connection_from_profile(profile)?;
         let timeout = Duration::from_secs(prepared.plan.connect_timeout_secs);
         let address = format!("{}:{}", prepared.plan.host, prepared.plan.port);
+        let observed_host_key = Arc::new(Mutex::new(None));
 
         let mut connection = tokio::time::timeout(
             timeout,
             client::connect(
                 prepared.client_config.clone(),
                 address.as_str(),
-                TermoraXClientHandler,
+                TermoraXClientHandler::require_fingerprint(
+                    trusted_host.fingerprint.clone(),
+                    Arc::clone(&observed_host_key),
+                ),
             ),
         )
         .await
         .map_err(|_| AppError::new("ssh_connect_timeout", "SSH 连接超时"))?
-        .map_err(|error| classify_ssh_error("ssh_connect_failed", "SSH 连接失败", error))?;
+        .map_err(|error| {
+            if let Some(inspected_host_key) = read_observed_host_key(&observed_host_key) {
+                if inspected_host_key.fingerprint != trusted_host.fingerprint {
+                    return build_host_fingerprint_mismatch_error(trusted_host, &inspected_host_key);
+                }
+            }
+
+            classify_ssh_error("ssh_connect_failed", "SSH 连接失败", error)
+        })?;
 
         self.authenticate(&mut connection, &prepared).await?;
 
@@ -353,6 +454,45 @@ pub fn default_ssh_service() -> RusshSshService {
     RusshSshService::new()
 }
 
+fn inspect_public_key(public_key: &PublicKey) -> InspectedSshHostKey {
+    InspectedSshHostKey {
+        algorithm: public_key.algorithm().as_str().to_string(),
+        fingerprint: public_key.fingerprint(HashAlg::Sha256).to_string(),
+    }
+}
+
+fn read_observed_host_key(
+    observed_host_key: &Arc<Mutex<Option<InspectedSshHostKey>>>,
+) -> Option<InspectedSshHostKey> {
+    observed_host_key
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().cloned())
+}
+
+fn take_observed_host_key(
+    observed_host_key: &Arc<Mutex<Option<InspectedSshHostKey>>>,
+) -> AppResult<InspectedSshHostKey> {
+    observed_host_key
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
+        .ok_or_else(|| AppError::new("ssh_host_key_missing", "未能读取远端主机指纹"))
+}
+
+fn build_host_fingerprint_mismatch_error(
+    trusted_host: &TrustedHost,
+    inspected_host_key: &InspectedSshHostKey,
+) -> AppError {
+    AppError::new(
+        "ssh_host_fingerprint_mismatch",
+        format!(
+            "主机指纹与已信任记录不一致，当前为 {}，已信任为 {}",
+            inspected_host_key.fingerprint, trusted_host.fingerprint
+        ),
+    )
+}
+
 fn optional_secret(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -430,9 +570,11 @@ fn classify_ssh_error(default_code: &'static str, fallback_message: &'static str
 #[cfg(test)]
 mod tests {
     use super::{
-        PreparedSshAuth, SshCredentials, classify_transport_error_code, default_ssh_service,
+        InspectedSshHostKey, PreparedSshAuth, SshCredentials, build_host_fingerprint_mismatch_error,
+        classify_transport_error_code, default_ssh_service, inspect_public_key,
     };
-    use crate::models::ConnectionProfile;
+    use crate::models::{ConnectionProfile, TrustedHost};
+    use russh::keys::ssh_key::PublicKey;
 
     fn profile(auth_type: &str) -> ConnectionProfile {
         ConnectionProfile {
@@ -534,5 +676,38 @@ mod tests {
         assert_eq!(classify_transport_error_code("permission denied"), "ssh_auth_failed");
         assert_eq!(classify_transport_error_code("broken pipe"), "ssh_disconnected");
         assert_eq!(classify_transport_error_code("unexpected packet"), "ssh_transport_error");
+    }
+
+    #[test]
+    fn inspect_public_key_uses_sha256_fingerprint_format() {
+        let public_key = PublicKey::from_openssh(
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti user@example.com",
+        )
+        .expect("test key should parse");
+
+        let inspected = inspect_public_key(&public_key);
+
+        assert_eq!(inspected.algorithm, "ssh-ed25519");
+        assert!(inspected.fingerprint.starts_with("SHA256:"));
+    }
+
+    #[test]
+    fn fingerprint_mismatch_error_uses_dedicated_error_code() {
+        let error = build_host_fingerprint_mismatch_error(
+            &TrustedHost {
+                host: "ssh.example.internal".into(),
+                port: 22,
+                algorithm: "ssh-ed25519".into(),
+                fingerprint: "SHA256:trusted".into(),
+                trusted_at: "1".into(),
+            },
+            &InspectedSshHostKey {
+                algorithm: "ssh-ed25519".into(),
+                fingerprint: "SHA256:observed".into(),
+            },
+        );
+
+        assert_eq!(error.code, "ssh_host_fingerprint_mismatch");
+        assert!(error.message.contains("SHA256:observed"));
     }
 }

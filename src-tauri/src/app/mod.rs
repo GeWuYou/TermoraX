@@ -28,6 +28,8 @@ pub fn run() {
             commands::delete_command_snippet,
             commands::save_settings,
             commands::reset_settings,
+            commands::inspect_connection_host,
+            commands::trust_connection_host,
             commands::open_session,
             commands::close_session,
             commands::reconnect_session,

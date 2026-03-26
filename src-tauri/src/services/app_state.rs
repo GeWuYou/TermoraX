@@ -15,8 +15,8 @@ use crate::{
     extensions::builtin_extensions,
     models::{
         ActivityEntry, BootstrapState, CommandSnippet, ConnectionExportResult, ConnectionImportResult,
-        ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, PersistedState, RemoteFileEntry,
-        SessionTab, TransferTask,
+        ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, HostFingerprintInspection,
+        PersistedState, RemoteFileEntry, SessionTab, TransferTask, TrustedHost,
     },
     services::{connections, sessions, sftp, ssh},
 };
@@ -131,15 +131,64 @@ impl AppState {
         Ok(store.snapshot())
     }
 
-    pub fn open_session(&self, app_handle: &AppHandle, connection_id: &str) -> AppResult<BootstrapState> {
+    /// Inspects the current SSH host fingerprint for a saved connection without opening a shell.
+    pub fn inspect_connection_host(&self, connection_id: &str) -> AppResult<HostFingerprintInspection> {
+        let (connection, trusted_host) = {
+            let store = self.store.lock()?;
+            let connection = store.find_connection(connection_id)?.clone();
+            let trusted_host = store
+                .find_trusted_host(&connection.host, connection.port)
+                .cloned();
+
+            (connection, trusted_host)
+        };
+        let inspected_host = tauri::async_runtime::block_on(ssh::default_ssh_service().inspect_host(&connection))?;
+
+        Ok(build_host_fingerprint_inspection(
+            &connection,
+            &inspected_host,
+            trusted_host.as_ref(),
+        ))
+    }
+
+    /// Persists the current inspected fingerprint as the trusted host key for a saved connection.
+    pub fn trust_connection_host(
+        &self,
+        connection_id: &str,
+        fingerprint: &str,
+    ) -> AppResult<HostFingerprintInspection> {
         let connection = {
             let store = self.store.lock()?;
             store.find_connection(connection_id)?.clone()
+        };
+        let inspected_host = tauri::async_runtime::block_on(ssh::default_ssh_service().inspect_host(&connection))?;
+        ensure_trust_request_matches(fingerprint, &inspected_host)?;
+
+        let mut store = self.store.lock()?;
+        store.trust_connection_host(&connection, &inspected_host)
+    }
+
+    pub fn open_session(&self, app_handle: &AppHandle, connection_id: &str) -> AppResult<BootstrapState> {
+        let (connection, trusted_host) = {
+            let store = self.store.lock()?;
+            let connection = store.find_connection(connection_id)?.clone();
+            let trusted_host = store
+                .find_trusted_host(&connection.host, connection.port)
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::new(
+                        "ssh_host_untrusted",
+                        "当前主机尚未信任，请先确认并信任主机指纹",
+                    )
+                })?;
+
+            (connection, trusted_host)
         };
 
         let opened = tauri::async_runtime::block_on(
             ssh::default_ssh_service().open_shell_session(
                 &connection,
+                &trusted_host,
                 sessions::DEFAULT_TERMINAL_COLS,
                 sessions::DEFAULT_TERMINAL_ROWS,
             ),
@@ -168,9 +217,18 @@ impl AppState {
 
     /// Reconnects an existing live session while keeping the current tab identifier.
     pub fn reconnect_session(&self, app_handle: &AppHandle, session_id: &str) -> AppResult<BootstrapState> {
-        let (connection, cols, rows, previous_runtime) = {
+        let (connection, trusted_host, cols, rows, previous_runtime) = {
             let mut store = self.store.lock()?;
             let connection = store.find_connection_for_session(session_id)?.clone();
+            let trusted_host = store
+                .find_trusted_host(&connection.host, connection.port)
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::new(
+                        "ssh_host_untrusted",
+                        "当前主机尚未信任，请先确认并信任主机指纹",
+                    )
+                })?;
             let session = store
                 .sessions
                 .iter()
@@ -179,6 +237,7 @@ impl AppState {
 
             (
                 connection,
+                trusted_host,
                 session.terminal_cols,
                 session.terminal_rows,
                 store.runtimes.remove(session_id),
@@ -189,9 +248,12 @@ impl AppState {
             runtime.close()?;
         }
 
-        let opened = tauri::async_runtime::block_on(
-            ssh::default_ssh_service().open_shell_session(&connection, cols, rows),
-        )?;
+        let opened = tauri::async_runtime::block_on(ssh::default_ssh_service().open_shell_session(
+            &connection,
+            &trusted_host,
+            cols,
+            rows,
+        ))?;
         {
             let mut store = self.store.lock()?;
             store.reconnect_live_session(session_id, &connection, opened.connection, opened.writer)?;
@@ -502,6 +564,35 @@ impl AppStore {
         self.persisted.settings = crate::models::AppSettings::default();
         self.record_activity("已重置工作台设置。".into());
         self.persist()
+    }
+
+    fn trust_connection_host(
+        &mut self,
+        connection: &ConnectionProfile,
+        inspected_host: &ssh::InspectedSshHostKey,
+    ) -> AppResult<HostFingerprintInspection> {
+        let trusted_at = now_iso();
+        upsert_trusted_host(
+            &mut self.persisted.trusted_hosts,
+            TrustedHost {
+                host: connection.host.clone(),
+                port: connection.port,
+                algorithm: inspected_host.algorithm.clone(),
+                fingerprint: inspected_host.fingerprint.clone(),
+                trusted_at,
+            },
+        );
+        self.record_activity(format!(
+            "已信任主机 {}:{} 的 SSH 指纹。",
+            connection.host, connection.port
+        ));
+        self.persist()?;
+
+        Ok(build_host_fingerprint_inspection(
+            connection,
+            inspected_host,
+            self.find_trusted_host(&connection.host, connection.port),
+        ))
     }
 
     fn open_live_session(
@@ -842,6 +933,13 @@ impl AppStore {
             .ok_or_else(|| AppError::new("connection_not_found", connection_id.to_string()))
     }
 
+    fn find_trusted_host(&self, host: &str, port: u16) -> Option<&TrustedHost> {
+        self.persisted
+            .trusted_hosts
+            .iter()
+            .find(|item| item.host == host && item.port == port)
+    }
+
     fn find_connection_for_session(&self, session_id: &str) -> AppResult<&ConnectionProfile> {
         let session = self
             .sessions
@@ -1033,6 +1131,17 @@ where
     }
 }
 
+fn upsert_trusted_host(items: &mut Vec<TrustedHost>, next: TrustedHost) {
+    if let Some(index) = items
+        .iter()
+        .position(|item| item.host == next.host && item.port == next.port)
+    {
+        items[index] = next;
+    } else {
+        items.insert(0, next);
+    }
+}
+
 trait HasId {
     fn id(&self) -> &str;
 }
@@ -1064,6 +1173,53 @@ fn now_iso() -> String {
         .unwrap_or_else(|_| "0".into())
 }
 
+fn ensure_trust_request_matches(
+    fingerprint: &str,
+    inspected_host: &ssh::InspectedSshHostKey,
+) -> AppResult<()> {
+    let requested_fingerprint = fingerprint.trim();
+    if requested_fingerprint.is_empty() {
+        return Err(AppError::new("ssh_host_fingerprint_required", "主机指纹不能为空"));
+    }
+
+    if requested_fingerprint != inspected_host.fingerprint {
+        return Err(AppError::new(
+            "ssh_host_fingerprint_stale",
+            format!(
+                "主机指纹已变化，请重新确认。当前为 {}",
+                inspected_host.fingerprint
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+fn build_host_fingerprint_inspection(
+    connection: &ConnectionProfile,
+    inspected_host: &ssh::InspectedSshHostKey,
+    trusted_host: Option<&TrustedHost>,
+) -> HostFingerprintInspection {
+    let (trust_status, trusted_fingerprint) = match trusted_host {
+        Some(trusted_host) if trusted_host.fingerprint == inspected_host.fingerprint => {
+            ("trusted".into(), Some(trusted_host.fingerprint.clone()))
+        }
+        Some(trusted_host) => ("mismatch".into(), Some(trusted_host.fingerprint.clone())),
+        None => ("requiresTrust".into(), None),
+    };
+
+    HostFingerprintInspection {
+        connection_id: connection.id.clone(),
+        host: connection.host.clone(),
+        port: connection.port,
+        algorithm: inspected_host.algorithm.clone(),
+        fingerprint: inspected_host.fingerprint.clone(),
+        trust_status,
+        trusted_fingerprint,
+        inspected_at: now_iso(),
+    }
+}
+
 fn parent_remote_path(path: &str) -> String {
     let trimmed = path.trim();
     if trimmed.is_empty() || trimmed == "/" {
@@ -1092,8 +1248,14 @@ fn emit_session_event(app_handle: &AppHandle, event: SessionUiEvent) {
 mod tests {
     use std::{env, fs, path::PathBuf};
 
-    use super::{AppState, AppStore, parent_remote_path};
-    use crate::models::ConnectionProfile;
+    use super::{
+        AppState, AppStore, build_host_fingerprint_inspection, ensure_trust_request_matches,
+        parent_remote_path,
+    };
+    use crate::{
+        models::{ConnectionProfile, TrustedHost},
+        services::ssh::InspectedSshHostKey,
+    };
 
     fn temp_config_dir(name: &str) -> PathBuf {
         let dir = env::temp_dir().join(format!("termorax-tests-{}-{}", name, std::process::id()));
@@ -1117,6 +1279,13 @@ mod tests {
             tags: vec![],
             note: "".into(),
             last_connected_at: None,
+        }
+    }
+
+    fn inspected_host(fingerprint: &str) -> InspectedSshHostKey {
+        InspectedSshHostKey {
+            algorithm: "ssh-ed25519".into(),
+            fingerprint: fingerprint.into(),
         }
     }
 
@@ -1147,6 +1316,102 @@ mod tests {
             .expect("validation should succeed");
 
         assert_eq!(result.normalized_profile.name, "测试主机");
+    }
+
+    #[test]
+    fn app_store_loads_legacy_state_without_trusted_hosts() {
+        let dir = temp_config_dir("legacy-trusted-hosts");
+        fs::write(
+            dir.join("workspace-state.json"),
+            r#"{
+              "connections": [],
+              "snippets": [],
+              "settings": {
+                "terminal": {
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 14,
+                  "lineHeight": 1.6,
+                  "theme": "midnight",
+                  "cursorStyle": "block",
+                  "copyOnSelect": false
+                },
+                "workspace": {
+                  "sidebarCollapsed": false,
+                  "rightPanel": "files",
+                  "rightPanelVisible": true
+                }
+              }
+            }"#,
+        )
+        .expect("legacy state should be written");
+
+        let store = AppStore::load(dir).expect("legacy state should load");
+
+        assert!(store.persisted.trusted_hosts.is_empty());
+    }
+
+    #[test]
+    fn trust_request_requires_matching_current_fingerprint() {
+        let empty_error = ensure_trust_request_matches("  ", &inspected_host("SHA256:current"))
+            .expect_err("blank trust fingerprint should fail");
+        assert_eq!(empty_error.code, "ssh_host_fingerprint_required");
+
+        let stale_error = ensure_trust_request_matches("SHA256:old", &inspected_host("SHA256:current"))
+            .expect_err("stale trust fingerprint should fail");
+        assert_eq!(stale_error.code, "ssh_host_fingerprint_stale");
+
+        ensure_trust_request_matches("SHA256:current", &inspected_host("SHA256:current"))
+            .expect("current fingerprint should pass");
+    }
+
+    #[test]
+    fn host_fingerprint_inspection_reports_trust_status() {
+        let connection = profile("conn-trust-status");
+        let trusted = build_host_fingerprint_inspection(
+            &connection,
+            &inspected_host("SHA256:current"),
+            Some(&TrustedHost {
+                host: connection.host.clone(),
+                port: connection.port,
+                algorithm: "ssh-ed25519".into(),
+                fingerprint: "SHA256:current".into(),
+                trusted_at: "1".into(),
+            }),
+        );
+        let mismatch = build_host_fingerprint_inspection(
+            &connection,
+            &inspected_host("SHA256:new"),
+            Some(&TrustedHost {
+                host: connection.host.clone(),
+                port: connection.port,
+                algorithm: "ssh-ed25519".into(),
+                fingerprint: "SHA256:old".into(),
+                trusted_at: "1".into(),
+            }),
+        );
+        let untrusted = build_host_fingerprint_inspection(&connection, &inspected_host("SHA256:new"), None);
+
+        assert_eq!(trusted.trust_status, "trusted");
+        assert_eq!(mismatch.trust_status, "mismatch");
+        assert_eq!(mismatch.trusted_fingerprint.as_deref(), Some("SHA256:old"));
+        assert_eq!(untrusted.trust_status, "requiresTrust");
+    }
+
+    #[test]
+    fn trust_connection_replaces_existing_host_entry() {
+        let dir = temp_config_dir("trusted-host-upsert");
+        let mut store = AppStore::load(dir).expect("store should initialize");
+        let connection = profile("conn-trusted-host");
+
+        store
+            .trust_connection_host(&connection, &inspected_host("SHA256:first"))
+            .expect("first trust should succeed");
+        store
+            .trust_connection_host(&connection, &inspected_host("SHA256:second"))
+            .expect("second trust should replace prior entry");
+
+        assert_eq!(store.persisted.trusted_hosts.len(), 1);
+        assert_eq!(store.persisted.trusted_hosts[0].fingerprint, "SHA256:second");
     }
 
     #[test]

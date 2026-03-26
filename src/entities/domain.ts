@@ -46,6 +46,21 @@ export interface ConnectionTestResult {
   normalizedProfile: ConnectionProfile;
 }
 
+export type HostTrustStatus = "trusted" | "untrusted" | "mismatch";
+
+export interface HostFingerprintInspection {
+  connectionId: string;
+  host: string;
+  port: number;
+  algorithm: string;
+  fingerprint: string;
+  trustStatus: HostTrustStatus;
+  trustedFingerprint: string | null;
+  inspectedAt: string;
+}
+
+export type PendingHostVerification = HostFingerprintInspection;
+
 export interface ConnectionExportResult {
   content: string;
   count: number;

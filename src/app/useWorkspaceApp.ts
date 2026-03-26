@@ -9,6 +9,8 @@ import type {
   ConnectionProfile,
   ConnectionTestResult,
   ConnectionValidationErrors,
+  HostFingerprintInspection,
+  PendingHostVerification,
   RemoteFileEntry,
   RightPanelId,
   SessionEvent,
@@ -38,6 +40,8 @@ interface WorkspaceState extends BootstrapState {
   connectionDuplicateWarning: ConnectionDuplicateWarning | null;
   connectionTestResult: ConnectionTestResult | null;
   connectionStatusMessage: string | null;
+  pendingHostVerification: PendingHostVerification | null;
+  lastHostInspection: HostFingerprintInspection | null;
 }
 
 const initialState: WorkspaceState = {
@@ -58,6 +62,8 @@ const initialState: WorkspaceState = {
   connectionDuplicateWarning: null,
   connectionTestResult: null,
   connectionStatusMessage: null,
+  pendingHostVerification: null,
+  lastHostInspection: null,
 };
 
 function deriveNextSelection(snapshot: BootstrapState, currentConnectionId: string | null, currentSessionId: string | null) {
@@ -76,6 +82,17 @@ function deriveNextSelection(snapshot: BootstrapState, currentConnectionId: stri
 function parseSessionTimestamp(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildHostInspectionMessage(inspection: HostFingerprintInspection): string {
+  switch (inspection.trustStatus) {
+    case "trusted":
+      return t("connections.hostTrusted", { host: inspection.host, port: inspection.port });
+    case "mismatch":
+      return t("connections.hostInspectionMismatch", { host: inspection.host, port: inspection.port });
+    default:
+      return t("connections.hostInspectionPending", { host: inspection.host, port: inspection.port });
+  }
 }
 
 /**
@@ -150,6 +167,7 @@ export function useWorkspaceApp() {
       connectionDuplicateWarning: null,
       connectionTestResult: null,
       connectionStatusMessage: null,
+      pendingHostVerification: null,
     }));
   }
 
@@ -183,6 +201,8 @@ export function useWorkspaceApp() {
           ...current,
           ...mergedSnapshot,
           ...deriveNextSelection(mergedSnapshot, current.selectedConnectionId, current.activeSessionId),
+          pendingHostVerification: current.pendingHostVerification,
+          lastHostInspection: current.lastHostInspection,
           isLoading: false,
           error: null,
         };
@@ -377,12 +397,70 @@ export function useWorkspaceApp() {
       }
     },
     async openSession(connectionId: string) {
-      await runMutation(() => desktopClient.openSession(connectionId));
+      setState((current) => ({ ...current, error: null, connectionStatusMessage: null }));
+
+      try {
+        const inspection = await desktopClient.inspectConnectionHost(connectionId);
+
+        if (inspection.trustStatus === "trusted") {
+          await runMutation(() => desktopClient.openSession(connectionId));
+          setState((current) => ({
+            ...current,
+            pendingHostVerification: null,
+            lastHostInspection: inspection,
+            selectedConnectionId: connectionId,
+            activeSessionId:
+              current.sessions.find((item) => item.connectionId === connectionId)?.id ?? current.activeSessionId,
+            connectionStatusMessage: buildHostInspectionMessage(inspection),
+          }));
+          return;
+        }
+
+        setState((current) => ({
+          ...current,
+          pendingHostVerification: inspection,
+          lastHostInspection: inspection,
+          connectionStatusMessage: buildHostInspectionMessage(inspection),
+        }));
+      } catch (error) {
+        setState((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : t("errors.unexpectedWorkspace"),
+        }));
+      }
+    },
+    async trustPendingHost() {
+      const pending = state.pendingHostVerification;
+      if (!pending) {
+        return;
+      }
+      try {
+        const inspection = await desktopClient.trustConnectionHost(pending.connectionId, pending.fingerprint);
+        setState((current) => ({
+          ...current,
+          pendingHostVerification: null,
+          lastHostInspection: inspection,
+        }));
+        await runMutation(() => desktopClient.openSession(pending.connectionId));
+        setState((current) => ({
+          ...current,
+          selectedConnectionId: pending.connectionId,
+          activeSessionId:
+            current.sessions.find((item) => item.connectionId === pending.connectionId)?.id ?? current.activeSessionId,
+          connectionStatusMessage: buildHostInspectionMessage(inspection),
+        }));
+      } catch (error) {
+        setState((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : t("errors.unexpectedWorkspace"),
+        }));
+      }
+    },
+    dismissPendingHostVerification() {
       setState((current) => ({
         ...current,
-        selectedConnectionId: connectionId,
-        activeSessionId:
-          current.sessions.find((item) => item.connectionId === connectionId)?.id ?? current.activeSessionId,
+        pendingHostVerification: null,
+        connectionStatusMessage: null,
       }));
     },
     async reconnectSession(sessionId: string) {

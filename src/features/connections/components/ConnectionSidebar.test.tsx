@@ -1,8 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceController } from "../../../app/useWorkspaceApp";
-import type { ConnectionImportResult, ConnectionProfile, ConnectionTestResult } from "../../../entities/domain";
+import type {
+  ConnectionImportResult,
+  ConnectionProfile,
+  ConnectionTestResult,
+  HostFingerprintInspection,
+  PendingHostVerification,
+} from "../../../entities/domain";
 import { defaultAppSettings } from "../../settings/model/defaults";
 import { ConnectionSidebar } from "./ConnectionSidebar";
 
@@ -74,6 +80,8 @@ function createController(overrides?: Partial<WorkspaceController>): WorkspaceCo
       connectionDuplicateWarning: null,
       connectionTestResult: null,
       connectionStatusMessage: null,
+      pendingHostVerification: null,
+      lastHostInspection: null,
     },
     selectedConnection: sampleConnections[0],
     activeSession: null,
@@ -86,6 +94,8 @@ function createController(overrides?: Partial<WorkspaceController>): WorkspaceCo
     importConnectionProfilesFromJson: async (): Promise<ConnectionImportResult | null> => null,
     exportConnectionProfiles: async () => null,
     openSession: async () => undefined,
+    trustPendingHost: async () => undefined,
+    dismissPendingHostVerification: () => undefined,
     reconnectSession: async () => undefined,
     closeSession: async () => undefined,
     closeOtherSessions: async () => undefined,
@@ -114,6 +124,20 @@ function createController(overrides?: Partial<WorkspaceController>): WorkspaceCo
   return { ...controller, ...overrides };
 }
 
+function inspection(overrides?: Partial<HostFingerprintInspection>): HostFingerprintInspection {
+  return {
+    connectionId: "conn-1",
+    host: "10.0.0.1",
+    port: 22,
+    algorithm: "ssh-ed25519",
+    fingerprint: "SHA256:current",
+    trustStatus: "untrusted",
+    trustedFingerprint: null,
+    inspectedAt: "1",
+    ...overrides,
+  };
+}
+
 describe("ConnectionSidebar", () => {
   it("filters connections by search term", async () => {
     const user = userEvent.setup();
@@ -140,5 +164,36 @@ describe("ConnectionSidebar", () => {
 
     expect(screen.getByText("确认删除连接配置")).toBeInTheDocument();
     expect(screen.getByText("删除后将同时移除关联会话。此操作不可撤销。")).toBeInTheDocument();
+  });
+
+  it("displays host fingerprint confirmation when pending verification exists", async () => {
+    const user = userEvent.setup();
+    const trustSpy = vi.fn(async () => undefined);
+    const dismissSpy = vi.fn();
+    const inspectionResult = inspection({
+      fingerprint: "SHA256:test",
+      trustStatus: "mismatch",
+      trustedFingerprint: "SHA256:trusted",
+    });
+    const controller = createController({
+      state: {
+        ...createController().state,
+        pendingHostVerification: inspectionResult as PendingHostVerification,
+        lastHostInspection: inspectionResult,
+      },
+      trustPendingHost: trustSpy,
+      dismissPendingHostVerification: dismissSpy,
+    });
+
+    render(<ConnectionSidebar controller={controller} />);
+
+    expect(screen.getByText("请确认主机指纹")).toBeInTheDocument();
+    expect(screen.getByText("指纹：SHA256:test")).toBeInTheDocument();
+    expect(screen.getByText("已信任指纹：SHA256:trusted")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "信任并继续" }));
+    await user.click(screen.getByRole("button", { name: "暂不信任" }));
+    expect(trustSpy).toHaveBeenCalled();
+    expect(dismissSpy).toHaveBeenCalled();
   });
 });
