@@ -9,6 +9,7 @@ import type {
   ConnectionTestResult,
   HostFingerprintInspection,
   HostTrustStatus,
+  RemoteDirectoryListing,
   RemoteFileEntry,
   SessionEvent,
   TransferTask,
@@ -123,6 +124,93 @@ function cloneState(): BootstrapState {
   return structuredClone(mockState);
 }
 
+function readRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readStringField(record: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+
+  return null;
+}
+
+function readNumberField(record: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+function deriveRemoteName(path: string): string {
+  if (path === "/") {
+    return "/";
+  }
+
+  const segments = path.split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? path;
+}
+
+/**
+ * Normalizes runtime payloads so the frontend stays resilient when Tauri returns
+ * slightly different field names or sparse metadata from the SFTP backend.
+ */
+export function normalizeRemoteFileEntry(input: unknown): RemoteFileEntry {
+  const record = readRecord(input) ?? {};
+  const path = readStringField(record, "path", "fullPath", "remotePath") ?? "/";
+  const kindValue = readStringField(record, "kind", "type") ?? "file";
+  const kind = kindValue === "directory" ? "directory" : "file";
+
+  return {
+    name: readStringField(record, "name", "filename", "fileName") ?? deriveRemoteName(path),
+    path,
+    kind,
+    size: readNumberField(record, "size", "length") ?? 0,
+    modifiedAt: readStringField(record, "modifiedAt", "modified_at", "mtime") ?? "",
+    createdAt: readStringField(record, "createdAt", "created_at", "ctime"),
+    permissions: readStringField(record, "permissions", "mode", "permission"),
+    owner: readStringField(record, "owner", "user", "uid"),
+    group: readStringField(record, "group", "gid"),
+  };
+}
+
+function normalizeRemoteEntries(input: unknown): RemoteFileEntry[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input.map((entry) => normalizeRemoteFileEntry(entry));
+}
+
+function normalizeRemoteDirectoryListing(input: unknown): RemoteDirectoryListing {
+  const record = readRecord(input) ?? {};
+  return {
+    canonicalPath: readStringField(record, "canonicalPath", "canonical_path", "path") ?? "/",
+    entries: normalizeRemoteEntries(record.entries),
+  };
+}
+
 function upsertById<T extends { id: string }>(items: T[], nextItem: T): T[] {
   const index = items.findIndex((item) => item.id === nextItem.id);
 
@@ -154,73 +242,49 @@ function mockRemoteEntriesForPath(path: string): RemoteFileEntry[] {
 
   const now = new Date().toISOString();
 
+  type MockEntryInput = Pick<RemoteFileEntry, "name" | "path" | "kind" | "size" | "modifiedAt"> &
+    Partial<Pick<RemoteFileEntry, "createdAt" | "permissions" | "owner" | "group">>;
+
+  const withMetadata = (entry: MockEntryInput): RemoteFileEntry => ({
+    ...entry,
+    createdAt: entry.createdAt ?? now,
+    permissions: entry.permissions ?? "755",
+    owner: entry.owner ?? "demo",
+    group: entry.group ?? "staff",
+  });
+
   if (path === "/") {
-    return [
-      {
-        name: "home",
-        path: "/home",
-        kind: "directory",
-        size: 0,
-        modifiedAt: now,
-      },
-      {
-        name: "var",
-        path: "/var",
-        kind: "directory",
-        size: 0,
-        modifiedAt: now,
-      },
-      {
-        name: "etc",
-        path: "/etc",
-        kind: "directory",
-        size: 0,
-        modifiedAt: now,
-      },
-    ] satisfies RemoteFileEntry[];
+    const entries = [
+      withMetadata({ name: "home", path: "/home", kind: "directory", size: 0, modifiedAt: now, owner: "root", group: "root" }),
+      withMetadata({ name: "var", path: "/var", kind: "directory", size: 0, modifiedAt: now, owner: "root", group: "root" }),
+      withMetadata({ name: "etc", path: "/etc", kind: "directory", size: 0, modifiedAt: now, owner: "root", group: "root" }),
+    ];
+    mockRemoteFileSystem[path] = entries;
+    return structuredClone(entries);
   }
 
   if (path === "/home") {
-    return [
-      {
-        name: "demo",
-        path: "/home/demo",
-        kind: "directory",
-        size: 0,
-        modifiedAt: now,
-      },
-      {
-        name: "ops",
-        path: "/home/ops",
-        kind: "directory",
-        size: 0,
-        modifiedAt: now,
-      },
-    ] satisfies RemoteFileEntry[];
+    const entries = [
+      withMetadata({ name: "demo", path: "/home/demo", kind: "directory", size: 0, modifiedAt: now, owner: "demo", group: "demo" }),
+      withMetadata({ name: "ops", path: "/home/ops", kind: "directory", size: 0, modifiedAt: now, owner: "ops", group: "ops" }),
+    ];
+    mockRemoteFileSystem[path] = entries;
+    return structuredClone(entries);
   }
 
   const entries: RemoteFileEntry[] = [
-    {
-      name: "deploy",
-      path: `${path}/deploy`,
-      kind: "directory",
-      size: 0,
-      modifiedAt: now,
-    },
-    {
-      name: "logs",
-      path: `${path}/logs`,
-      kind: "directory",
-      size: 0,
-      modifiedAt: now,
-    },
-    {
+    withMetadata({ name: "deploy", path: `${path}/deploy`, kind: "directory", size: 0, modifiedAt: now, owner: "deploy", group: "ops" }),
+    withMetadata({ name: "logs", path: `${path}/logs`, kind: "directory", size: 0, modifiedAt: now, owner: "deploy", group: "ops" }),
+    withMetadata({
       name: "README.md",
       path: `${path}/README.md`,
       kind: "file",
       size: 1480,
       modifiedAt: now,
-    },
+      owner: "deploy",
+      group: "ops",
+      permissions: "644",
+    }),
   ];
   mockRemoteFileSystem[path] = entries;
   return structuredClone(entries);
@@ -386,6 +450,10 @@ function renameMockRemoteEntry(path: string, targetPath: string, isDirectory: bo
       kind: isDirectory ? "directory" : "file",
       size: 0,
       modifiedAt: new Date().toISOString(),
+      createdAt: null,
+      permissions: isDirectory ? "755" : "644",
+      owner: "deploy",
+      group: "ops",
     } satisfies RemoteFileEntry);
 
   removeMockRemoteEntry(path, isDirectory);
@@ -670,6 +738,13 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
       const session = mockState.sessions.find((item) => item.id === sessionId);
       return mockRemoteEntriesForPath(session?.currentPath ?? "/home/demo") as T;
     }
+    case "list_remote_entries_at_path": {
+      const path = String(args?.path ?? "").trim() || "/";
+      return {
+        canonicalPath: path,
+        entries: mockRemoteEntriesForPath(path),
+      } as T;
+    }
     case "navigate_remote_directory": {
       const sessionId = args?.sessionId as string;
       const path = String(args?.path ?? "").trim();
@@ -710,6 +785,10 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
         kind: "file",
         size: 2048,
         modifiedAt: now,
+        createdAt: null,
+        permissions: "644",
+        owner: "deploy",
+        group: "ops",
       });
       mockState = {
         ...mockState,
@@ -743,6 +822,10 @@ async function callOrMock<T>(command: string, args?: Record<string, unknown>): P
         kind: "directory",
         size: 0,
         modifiedAt: now,
+        createdAt: null,
+        permissions: "755",
+        owner: "deploy",
+        group: "ops",
       });
       mockRemoteFileSystem[path] = mockRemoteFileSystem[path] ?? [];
       recordActivity(`已创建远程目录 ${path}`);
@@ -866,8 +949,13 @@ export const desktopClient = {
   runSnippetOnSession(sessionId: string, snippetId: string) {
     return callOrMock<BootstrapState>("run_snippet_on_session", { sessionId, snippetId });
   },
-  listRemoteEntries(sessionId: string) {
-    return callOrMock<RemoteFileEntry[]>("list_remote_entries", { sessionId });
+  async listRemoteEntries(sessionId: string) {
+    const result = await callOrMock<unknown>("list_remote_entries", { sessionId });
+    return normalizeRemoteEntries(result);
+  },
+  async listRemoteEntriesAtPath(sessionId: string, path: string) {
+    const result = await callOrMock<unknown>("list_remote_entries_at_path", { sessionId, path });
+    return normalizeRemoteDirectoryListing(result);
   },
   navigateRemoteDirectory(sessionId: string, path: string) {
     return callOrMock<BootstrapState>("navigate_remote_directory", { sessionId, path });

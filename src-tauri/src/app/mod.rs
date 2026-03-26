@@ -39,6 +39,7 @@ pub fn run() {
             commands::send_session_input,
             commands::run_snippet_on_session,
             commands::list_remote_entries,
+            commands::list_remote_entries_at_path,
             commands::navigate_remote_directory,
             commands::navigate_remote_to_parent,
             commands::upload_file_to_remote,

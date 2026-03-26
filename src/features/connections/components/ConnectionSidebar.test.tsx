@@ -75,6 +75,7 @@ function createController(overrides?: Partial<WorkspaceController>): WorkspaceCo
       selectedConnectionId: "conn-1",
       activeSessionId: null,
       remoteEntries: [],
+      remoteRootEntries: [],
       remoteEntriesLoading: false,
       connectionValidationErrors: {},
       connectionDuplicateWarning: null,

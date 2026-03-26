@@ -108,6 +108,15 @@ export interface RemoteFileEntry {
   kind: "file" | "directory";
   size: number;
   modifiedAt: string;
+  createdAt: string | null;
+  permissions: string | null;
+  owner: string | null;
+  group: string | null;
+}
+
+export interface RemoteDirectoryListing {
+  canonicalPath: string;
+  entries: RemoteFileEntry[];
 }
 
 export type TransferDirection = "upload" | "download";

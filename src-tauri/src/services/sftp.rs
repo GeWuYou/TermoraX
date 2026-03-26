@@ -200,6 +200,10 @@ fn map_dir_entry(base_path: &str, entry: DirEntry) -> RemoteFileEntry {
         kind,
         size: metadata.len(),
         modified_at: metadata_modified_at(&metadata),
+        created_at: String::new(),
+        permissions: metadata_permissions(&metadata),
+        owner: metadata_owner(&metadata),
+        group: metadata_group(&metadata),
     }
 }
 
@@ -224,6 +228,29 @@ fn metadata_modified_at(metadata: &FileAttributes) -> String {
     metadata
         .mtime
         .map(|seconds| u128::from(seconds).saturating_mul(1000).to_string())
+        .unwrap_or_default()
+}
+
+fn metadata_permissions(metadata: &FileAttributes) -> String {
+    metadata
+        .permissions
+        .map(|permissions| format!("{:o}", permissions & 0o7777))
+        .unwrap_or_default()
+}
+
+fn metadata_owner(metadata: &FileAttributes) -> String {
+    metadata
+        .user
+        .clone()
+        .or_else(|| metadata.uid.map(|uid| uid.to_string()))
+        .unwrap_or_default()
+}
+
+fn metadata_group(metadata: &FileAttributes) -> String {
+    metadata
+        .group
+        .clone()
+        .or_else(|| metadata.gid.map(|gid| gid.to_string()))
         .unwrap_or_default()
 }
 
@@ -267,8 +294,8 @@ fn classify_sftp_error(default_code: &'static str, fallback_message: &'static st
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_remote_entry_kind, compare_remote_entries, join_remote_path, metadata_modified_at,
-        normalize_requested_path,
+        classify_remote_entry_kind, compare_remote_entries, join_remote_path, metadata_group,
+        metadata_modified_at, metadata_owner, metadata_permissions, normalize_requested_path,
     };
     use crate::models::RemoteFileEntry;
     use russh_sftp::protocol::{FileAttributes, FileType};
@@ -307,6 +334,32 @@ mod tests {
     }
 
     #[test]
+    fn metadata_helpers_prefer_explicit_names_and_octal_permissions() {
+        let metadata = FileAttributes {
+            user: Some("deploy".into()),
+            group: Some("ops".into()),
+            permissions: Some(0o100755),
+            ..FileAttributes::empty()
+        };
+
+        assert_eq!(metadata_permissions(&metadata), "755");
+        assert_eq!(metadata_owner(&metadata), "deploy");
+        assert_eq!(metadata_group(&metadata), "ops");
+    }
+
+    #[test]
+    fn metadata_helpers_fall_back_to_ids_when_names_are_missing() {
+        let metadata = FileAttributes {
+            uid: Some(1001),
+            gid: Some(1002),
+            ..FileAttributes::empty()
+        };
+
+        assert_eq!(metadata_owner(&metadata), "1001");
+        assert_eq!(metadata_group(&metadata), "1002");
+    }
+
+    #[test]
     fn compare_remote_entries_sorts_directories_before_files_then_by_name() {
         let mut entries = vec![
             RemoteFileEntry {
@@ -315,6 +368,10 @@ mod tests {
                 kind: "file".into(),
                 size: 1,
                 modified_at: String::new(),
+                created_at: String::new(),
+                permissions: String::new(),
+                owner: String::new(),
+                group: String::new(),
             },
             RemoteFileEntry {
                 name: "beta".into(),
@@ -322,6 +379,10 @@ mod tests {
                 kind: "directory".into(),
                 size: 0,
                 modified_at: String::new(),
+                created_at: String::new(),
+                permissions: String::new(),
+                owner: String::new(),
+                group: String::new(),
             },
             RemoteFileEntry {
                 name: "Alpha".into(),
@@ -329,6 +390,10 @@ mod tests {
                 kind: "directory".into(),
                 size: 0,
                 modified_at: String::new(),
+                created_at: String::new(),
+                permissions: String::new(),
+                owner: String::new(),
+                group: String::new(),
             },
         ];
 

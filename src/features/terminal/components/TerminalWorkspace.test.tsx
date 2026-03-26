@@ -101,6 +101,7 @@ function buildState(session: SessionTab | null): WorkspaceViewState {
     selectedConnectionId: null,
     activeSessionId: session?.id ?? null,
     remoteEntries: [],
+    remoteRootEntries: [],
     remoteEntriesLoading: false,
     connectionValidationErrors: {},
     connectionDuplicateWarning: null,

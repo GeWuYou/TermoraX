@@ -62,13 +62,14 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
                 <FilePanel
                   currentPath={activeSession?.currentPath ?? null}
                   entries={state.remoteEntries}
+                  rootEntries={state.remoteRootEntries}
                   loading={state.remoteEntriesLoading}
                   onOpenDirectory={controller.openRemoteDirectory}
-                onGoParent={controller.goRemoteParent}
-                onRefresh={controller.refreshRemoteEntriesForActiveSession}
-                onUpload={controller.uploadFileToCurrentDirectory}
-                onCreateDirectory={controller.createRemoteDirectory}
-                onDownload={controller.downloadRemoteFile}
+                  onGoParent={controller.goRemoteParent}
+                  onRefresh={controller.refreshRemoteEntriesForActiveSession}
+                  onUpload={controller.uploadFileToCurrentDirectory}
+                  onCreateDirectory={controller.createRemoteDirectory}
+                  onDownload={controller.downloadRemoteFile}
                   onRename={controller.renameRemoteEntry}
                   onDelete={controller.deleteRemoteEntry}
                 />

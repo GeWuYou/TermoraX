@@ -5,7 +5,7 @@ use crate::{
     models::{
         AppSettings, BootstrapState, CommandSnippet, ConnectionExportResult, ConnectionImportResult,
         ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, HostFingerprintInspection,
-        RemoteFileEntry,
+        RemoteDirectoryListing, RemoteFileEntry,
     },
     services::app_state::AppState,
 };
@@ -184,6 +184,16 @@ pub fn list_remote_entries(
     session_id: String,
 ) -> AppResult<Vec<RemoteFileEntry>> {
     state.list_remote_entries(&session_id)
+}
+
+/// Lists a specific remote directory without changing the active session path.
+#[tauri::command]
+pub fn list_remote_entries_at_path(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> AppResult<RemoteDirectoryListing> {
+    state.list_remote_entries_at_path(&session_id, &path)
 }
 
 /// Navigates a live session to a specific remote directory path.

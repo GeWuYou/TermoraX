@@ -16,7 +16,7 @@ use crate::{
     models::{
         ActivityEntry, BootstrapState, CommandSnippet, ConnectionExportResult, ConnectionImportResult,
         ConnectionProfile, ConnectionTestResult, ConnectionValidationResult, HostFingerprintInspection,
-        PersistedState, RemoteFileEntry, SessionTab, TransferTask, TrustedHost,
+        PersistedState, RemoteDirectoryListing, RemoteFileEntry, SessionTab, TransferTask, TrustedHost,
     },
     services::{connections, sessions, sftp, ssh},
 };
@@ -306,6 +306,16 @@ impl AppState {
     pub fn list_remote_entries(&self, session_id: &str) -> AppResult<Vec<RemoteFileEntry>> {
         let mut store = self.store.lock()?;
         store.list_remote_entries(session_id)
+    }
+
+    /// Lists a remote directory without mutating the session's tracked working path.
+    pub fn list_remote_entries_at_path(
+        &self,
+        session_id: &str,
+        path: &str,
+    ) -> AppResult<RemoteDirectoryListing> {
+        let mut store = self.store.lock()?;
+        store.list_remote_entries_at_path(session_id, path)
     }
 
     /// Navigates the tracked remote working directory to the provided target path.
@@ -765,6 +775,20 @@ impl AppStore {
         }
 
         Ok(listing.entries)
+    }
+
+    fn list_remote_entries_at_path(&mut self, session_id: &str, path: &str) -> AppResult<RemoteDirectoryListing> {
+        let runtime = self
+            .runtimes
+            .get(session_id)
+            .ok_or_else(|| AppError::new("session_not_connected", "当前会话尚未建立实时 SSH 连接"))?;
+        let listing =
+            tauri::async_runtime::block_on(sftp::default_sftp_service().list_directory(&runtime.connection, path))?;
+
+        Ok(RemoteDirectoryListing {
+            canonical_path: listing.canonical_path,
+            entries: listing.entries,
+        })
     }
 
     fn navigate_remote_directory(&mut self, session_id: &str, path: &str) -> AppResult<()> {

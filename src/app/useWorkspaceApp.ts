@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppSettings,
   BootstrapState,
@@ -35,6 +35,7 @@ interface WorkspaceState extends BootstrapState {
   selectedConnectionId: string | null;
   activeSessionId: string | null;
   remoteEntries: RemoteFileEntry[];
+  remoteRootEntries: RemoteFileEntry[];
   remoteEntriesLoading: boolean;
   connectionValidationErrors: ConnectionValidationErrors;
   connectionDuplicateWarning: ConnectionDuplicateWarning | null;
@@ -57,6 +58,7 @@ const initialState: WorkspaceState = {
   selectedConnectionId: null,
   activeSessionId: null,
   remoteEntries: [],
+  remoteRootEntries: [],
   remoteEntriesLoading: false,
   connectionValidationErrors: {},
   connectionDuplicateWarning: null,
@@ -127,14 +129,26 @@ export function mergeSnapshotSessions(currentSessions: SessionTab[], snapshotSes
 
 export function useWorkspaceApp() {
   const [state, setState] = useState<WorkspaceState>(initialState);
+  const remoteEntriesRequestRef = useRef(0);
+  const remoteRootEntriesRequestRef = useRef(0);
   const activeSessionCurrentPath =
     state.sessions.find((item) => item.id === state.activeSessionId)?.currentPath ?? null;
+  const filesPanelVisible =
+    state.settings.workspace.rightPanelVisible && state.settings.workspace.rightPanel === "files";
 
-  async function refreshRemoteEntries(sessionId: string) {
+  const refreshRemoteEntries = useCallback(async (sessionId: string) => {
+    const requestId = remoteEntriesRequestRef.current + 1;
+    remoteEntriesRequestRef.current = requestId;
     setState((current) => ({ ...current, remoteEntriesLoading: true }));
     try {
       const remoteEntries = await desktopClient.listRemoteEntries(sessionId);
-      setState((current) => ({ ...current, remoteEntries, remoteEntriesLoading: false }));
+      setState((current) => {
+        if (requestId !== remoteEntriesRequestRef.current || current.activeSessionId !== sessionId) {
+          return current;
+        }
+
+        return { ...current, remoteEntries, remoteEntriesLoading: false };
+      });
     } catch (error) {
       setState((current) => ({
         ...current,
@@ -142,7 +156,29 @@ export function useWorkspaceApp() {
         remoteEntriesLoading: false,
       }));
     }
-  }
+  }, []);
+
+  const refreshRemoteRootEntries = useCallback(async (sessionId: string) => {
+    const requestId = remoteRootEntriesRequestRef.current + 1;
+    remoteRootEntriesRequestRef.current = requestId;
+
+    try {
+      const listing = await desktopClient.listRemoteEntriesAtPath(sessionId, "/");
+      const remoteRootEntries = listing.entries.filter((entry) => entry.kind === "directory");
+      setState((current) => {
+        if (requestId !== remoteRootEntriesRequestRef.current || current.activeSessionId !== sessionId) {
+          return current;
+        }
+
+        return { ...current, remoteRootEntries };
+      });
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: error instanceof Error ? error.message : t("errors.remoteEntries"),
+      }));
+    }
+  }, []);
 
   function setConnectionFeedback(input: {
     errors?: ConnectionValidationErrors;
@@ -228,8 +264,19 @@ export function useWorkspaceApp() {
   }, []);
 
   useEffect(() => {
-    setState((current) => ({ ...current, remoteEntries: [], remoteEntriesLoading: false }));
+    remoteEntriesRequestRef.current += 1;
+    remoteRootEntriesRequestRef.current += 1;
+    setState((current) => ({ ...current, remoteEntries: [], remoteRootEntries: [], remoteEntriesLoading: false }));
   }, [state.activeSessionId]);
+
+  useEffect(() => {
+    if (!filesPanelVisible || !state.activeSessionId || !activeSessionCurrentPath) {
+      return;
+    }
+
+    void refreshRemoteEntries(state.activeSessionId);
+    void refreshRemoteRootEntries(state.activeSessionId);
+  }, [state.activeSessionId, activeSessionCurrentPath, filesPanelVisible, refreshRemoteEntries, refreshRemoteRootEntries]);
 
   useEffect(() => {
     let cancelled = false;
@@ -388,14 +435,16 @@ export function useWorkspaceApp() {
         const inspection = await desktopClient.inspectConnectionHost(connectionId);
 
         if (inspection.trustStatus === "trusted") {
-          await runMutation(() => desktopClient.openSession(connectionId));
+          const snapshot = await desktopClient.openSession(connectionId);
+          applySnapshot(snapshot);
+          const nextActiveSessionId =
+            snapshot.sessions.find((item) => item.connectionId === connectionId)?.id ?? snapshot.sessions[0]?.id ?? null;
           setState((current) => ({
             ...current,
             pendingHostVerification: null,
             lastHostInspection: inspection,
             selectedConnectionId: connectionId,
-            activeSessionId:
-              current.sessions.find((item) => item.connectionId === connectionId)?.id ?? current.activeSessionId,
+            activeSessionId: nextActiveSessionId,
             connectionStatusMessage: buildHostInspectionMessage(inspection),
           }));
           return;
@@ -426,12 +475,14 @@ export function useWorkspaceApp() {
           pendingHostVerification: null,
           lastHostInspection: inspection,
         }));
-        await runMutation(() => desktopClient.openSession(pending.connectionId));
+        const snapshot = await desktopClient.openSession(pending.connectionId);
+        applySnapshot(snapshot);
+        const nextActiveSessionId =
+          snapshot.sessions.find((item) => item.connectionId === pending.connectionId)?.id ?? snapshot.sessions[0]?.id ?? null;
         setState((current) => ({
           ...current,
           selectedConnectionId: pending.connectionId,
-          activeSessionId:
-            current.sessions.find((item) => item.connectionId === pending.connectionId)?.id ?? current.activeSessionId,
+          activeSessionId: nextActiveSessionId,
           connectionStatusMessage: buildHostInspectionMessage(inspection),
         }));
       } catch (error) {
@@ -474,6 +525,7 @@ export function useWorkspaceApp() {
         return;
       }
       await runMutation(() => desktopClient.navigateRemoteDirectory(state.activeSessionId as string, path));
+      await refreshRemoteEntries(state.activeSessionId);
     },
     async goRemoteParent() {
       if (!state.activeSessionId) {
@@ -488,6 +540,7 @@ export function useWorkspaceApp() {
       }
 
       await refreshRemoteEntries(state.activeSessionId);
+      await refreshRemoteRootEntries(state.activeSessionId);
     },
     async retryTransfer(task: TransferTask) {
       await runMutation(() => desktopClient.retryTransferTask(task.id));

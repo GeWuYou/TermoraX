@@ -115,11 +115,34 @@ pub struct SessionTab {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteFileEntry {
+    /// Display name of the remote entry.
     pub name: String,
+    /// Absolute remote path of the entry.
     pub path: String,
+    /// Entry kind exposed to the frontend.
     pub kind: String,
+    /// Best-known byte size returned by SFTP metadata.
     pub size: u64,
+    /// Last modification timestamp in milliseconds since Unix epoch.
     pub modified_at: String,
+    /// Creation timestamp if the remote server exposes it.
+    pub created_at: String,
+    /// Unix-style permissions shown in octal form when available.
+    pub permissions: String,
+    /// Remote user or uid when available from the SFTP server.
+    pub owner: String,
+    /// Remote group or gid when available from the SFTP server.
+    pub group: String,
+}
+
+/// Canonical remote directory listing returned across the Tauri boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteDirectoryListing {
+    /// Canonical absolute path resolved by the remote SFTP server.
+    pub canonical_path: String,
+    /// Entries contained in the directory.
+    pub entries: Vec<RemoteFileEntry>,
 }
 
 /// A tracked upload or download task shown in the transfer center.
