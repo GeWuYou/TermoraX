@@ -226,6 +226,80 @@ export function collectCommandHistoryEntries(currentDraft: string, input: string
   return { nextDraft, commands };
 }
 
+interface SessionResizeScheduler {
+  clear: (sessionId?: string) => void;
+  schedule: (sessionId: string, cols: number, rows: number) => void;
+}
+
+/**
+ * Coalesces rapid terminal resize bursts so drag-resizing does not flood
+ * the Tauri command bridge with obsolete PTY size updates.
+ */
+export function createSessionResizeScheduler(input: {
+  onError: (error: unknown) => void;
+  sendResize: (sessionId: string, cols: number, rows: number) => Promise<void>;
+}): SessionResizeScheduler {
+  const committedSizes = new Map<string, string>();
+  const inFlightSizes = new Map<string, string>();
+  const queuedSizes = new Map<string, { cols: number; rows: number }>();
+
+  const flush = async (sessionId: string): Promise<void> => {
+    if (inFlightSizes.has(sessionId)) {
+      return;
+    }
+
+    const next = queuedSizes.get(sessionId);
+    if (!next) {
+      return;
+    }
+
+    const nextKey = `${next.cols}x${next.rows}`;
+    queuedSizes.delete(sessionId);
+
+    if (committedSizes.get(sessionId) === nextKey) {
+      return;
+    }
+
+    inFlightSizes.set(sessionId, nextKey);
+
+    try {
+      await input.sendResize(sessionId, next.cols, next.rows);
+      committedSizes.set(sessionId, nextKey);
+    } catch (error) {
+      input.onError(error);
+    } finally {
+      inFlightSizes.delete(sessionId);
+      if (queuedSizes.has(sessionId)) {
+        void flush(sessionId);
+      }
+    }
+  };
+
+  return {
+    clear(sessionId?: string) {
+      if (sessionId) {
+        queuedSizes.delete(sessionId);
+        committedSizes.delete(sessionId);
+        inFlightSizes.delete(sessionId);
+        return;
+      }
+
+      queuedSizes.clear();
+      committedSizes.clear();
+      inFlightSizes.clear();
+    },
+    schedule(sessionId: string, cols: number, rows: number) {
+      const nextKey = `${cols}x${rows}`;
+      if (!inFlightSizes.has(sessionId) && committedSizes.get(sessionId) === nextKey) {
+        return;
+      }
+
+      queuedSizes.set(sessionId, { cols, rows });
+      void flush(sessionId);
+    },
+  };
+}
+
 export function useWorkspaceApp() {
   const [state, setState] = useState<WorkspaceState>(initialState);
   const remoteEntriesRequestRef = useRef(0);
@@ -235,9 +309,24 @@ export function useWorkspaceApp() {
   const lastLoadedRemotePathRef = useRef<string | null>(null);
   const lastLoadedRootSessionRef = useRef<string | null>(null);
   const commandDraftsRef = useRef<Record<string, string>>({});
+  const sessionResizeSchedulerRef = useRef<SessionResizeScheduler | null>(null);
   const activeSessionRecord = state.sessions.find((item) => item.id === state.activeSessionId) ?? null;
   const activeSessionCurrentPath = activeSessionRecord?.currentPath ?? null;
   const activeSessionUpdatedAt = activeSessionRecord?.updatedAt ?? null;
+
+  if (!sessionResizeSchedulerRef.current) {
+    sessionResizeSchedulerRef.current = createSessionResizeScheduler({
+      onError(error) {
+        setState((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : t("errors.unexpectedWorkspace"),
+        }));
+      },
+      sendResize(sessionId, cols, rows) {
+        return desktopClient.resizeSession(sessionId, cols, rows);
+      },
+    });
+  }
   const activeSessionStatus = activeSessionRecord?.status ?? null;
   const filesPanelVisible =
     state.settings.workspace.bottomPaneVisible && state.settings.workspace.bottomPane === "files";
@@ -717,9 +806,11 @@ export function useWorkspaceApp() {
       await runMutation(() => desktopClient.reconnectSession(sessionId));
     },
     async closeSession(sessionId: string) {
+      sessionResizeSchedulerRef.current?.clear(sessionId);
       await runMutation(() => desktopClient.closeSession(sessionId));
     },
     async closeOtherSessions(sessionId: string) {
+      sessionResizeSchedulerRef.current?.clear();
       await runMutation(() => desktopClient.closeOtherSessions(sessionId));
     },
     async clearSessionOutput(sessionId: string) {
@@ -738,15 +829,7 @@ export function useWorkspaceApp() {
           error: null,
         };
       });
-
-      try {
-        await desktopClient.resizeSession(sessionId, cols, rows);
-      } catch (error) {
-        setState((current) => ({
-          ...current,
-          error: error instanceof Error ? error.message : t("errors.unexpectedWorkspace"),
-        }));
-      }
+      sessionResizeSchedulerRef.current?.schedule(sessionId, cols, rows);
     },
     async sendSessionInput(sessionId: string, input: string) {
       if (!input) {

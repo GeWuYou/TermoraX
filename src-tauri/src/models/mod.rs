@@ -6,7 +6,7 @@ const MIN_LEFT_PANE_WIDTH: u16 = 220;
 const MAX_LEFT_PANE_WIDTH: u16 = 320;
 const DEFAULT_LEFT_PANE_WIDTH: u16 = 240;
 const MIN_BOTTOM_PANE_HEIGHT: u16 = 120;
-const MAX_BOTTOM_PANE_HEIGHT: u16 = 260;
+const MAX_BOTTOM_PANE_HEIGHT: u16 = 520;
 const DEFAULT_BOTTOM_PANE_HEIGHT: u16 = 180;
 
 fn default_font_family() -> String {

@@ -18,7 +18,7 @@ interface WorkspaceShellProps {
 const MIN_LEFT_PANE_WIDTH = 220;
 const MAX_LEFT_PANE_WIDTH = 320;
 const MIN_BOTTOM_PANE_HEIGHT = 120;
-const MAX_BOTTOM_PANE_HEIGHT = 260;
+const MAX_BOTTOM_PANE_HEIGHT = 520;
 
 function clampLeftPaneWidth(value: number): number {
   return Math.min(Math.max(value, MIN_LEFT_PANE_WIDTH), MAX_LEFT_PANE_WIDTH);

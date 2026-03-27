@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SessionTab } from "../entities/domain";
-import { collectCommandHistoryEntries, mergeSnapshotSessions, updateSessionTerminalSize } from "./useWorkspaceApp";
+import {
+  collectCommandHistoryEntries,
+  createSessionResizeScheduler,
+  mergeSnapshotSessions,
+  updateSessionTerminalSize,
+} from "./useWorkspaceApp";
 
 function session(overrides?: Partial<SessionTab>): SessionTab {
   return {
@@ -101,5 +106,39 @@ describe("collectCommandHistoryEntries", () => {
 
     expect(result.nextDraft).toBe("");
     expect(result.commands).toEqual(["kubectl get pods"]);
+  });
+});
+
+describe("createSessionResizeScheduler", () => {
+  it("coalesces rapid resize bursts and sends only the latest queued size", async () => {
+    const calls: string[] = [];
+    let resolveFirst = () => {};
+    const firstSent = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let invocationCount = 0;
+    const scheduler = createSessionResizeScheduler({
+      onError() {},
+      sendResize: async (_sessionId, cols, rows) => {
+        calls.push(`${cols}x${rows}`);
+        invocationCount += 1;
+        if (invocationCount === 1) {
+          await firstSent;
+        }
+      },
+    });
+
+    scheduler.schedule("session-1", 120, 32);
+    scheduler.schedule("session-1", 121, 33);
+    scheduler.schedule("session-1", 140, 40);
+
+    await Promise.resolve();
+    expect(calls).toEqual(["120x32"]);
+
+    resolveFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toEqual(["120x32", "140x40"]);
   });
 });
