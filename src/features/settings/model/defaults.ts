@@ -14,7 +14,7 @@ export const defaultAppSettings: AppSettings = {
     leftPaneWidth: 240,
     bottomPane: "files",
     bottomPaneVisible: false,
-    bottomPaneHeight: 200,
+    bottomPaneHeight: 180,
   },
 };
 

@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_THEME_ID: &str = "midnight";
 const DEFAULT_BOTTOM_PANEL_ID: &str = "files";
-const MIN_LEFT_PANE_WIDTH: u16 = 200;
+const MIN_LEFT_PANE_WIDTH: u16 = 220;
 const MAX_LEFT_PANE_WIDTH: u16 = 320;
 const DEFAULT_LEFT_PANE_WIDTH: u16 = 240;
-const MIN_BOTTOM_PANE_HEIGHT: u16 = 160;
-const MAX_BOTTOM_PANE_HEIGHT: u16 = 320;
-const DEFAULT_BOTTOM_PANE_HEIGHT: u16 = 200;
+const MIN_BOTTOM_PANE_HEIGHT: u16 = 140;
+const MAX_BOTTOM_PANE_HEIGHT: u16 = 260;
+const DEFAULT_BOTTOM_PANE_HEIGHT: u16 = 180;
 
 fn default_font_family() -> String {
     "\"JetBrains Mono\", \"Cascadia Code\", Consolas, monospace".into()

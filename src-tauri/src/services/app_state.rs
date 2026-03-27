@@ -1913,7 +1913,7 @@ mod tests {
         assert_eq!(store.persisted.settings.workspace.left_pane_width, 240);
         assert_eq!(store.persisted.settings.workspace.bottom_pane, "files");
         assert!(store.persisted.settings.workspace.bottom_pane_visible);
-        assert_eq!(store.persisted.settings.workspace.bottom_pane_height, 200);
+        assert_eq!(store.persisted.settings.workspace.bottom_pane_height, 180);
     }
 
     #[test]
@@ -1950,7 +1950,7 @@ mod tests {
         assert_eq!(store.persisted.settings.workspace.left_pane_width, 240);
         assert_eq!(store.persisted.settings.workspace.bottom_pane, "snippets");
         assert!(store.persisted.settings.workspace.bottom_pane_visible);
-        assert_eq!(store.persisted.settings.workspace.bottom_pane_height, 200);
+        assert_eq!(store.persisted.settings.workspace.bottom_pane_height, 180);
     }
 
     #[test]

@@ -240,11 +240,11 @@ export function normalizeAppSettings(settings: AppSettings): AppSettings {
         : defaultAppSettings.workspace.leftPaneVisible;
   const leftPaneWidth =
     typeof workspaceRecord.leftPaneWidth === "number" && Number.isFinite(workspaceRecord.leftPaneWidth)
-      ? Math.min(Math.max(workspaceRecord.leftPaneWidth, 200), 320)
+      ? Math.min(Math.max(workspaceRecord.leftPaneWidth, 220), 320)
       : defaultAppSettings.workspace.leftPaneWidth;
   const bottomPaneHeight =
     typeof workspaceRecord.bottomPaneHeight === "number" && Number.isFinite(workspaceRecord.bottomPaneHeight)
-      ? Math.min(Math.max(workspaceRecord.bottomPaneHeight, 160), 320)
+      ? Math.min(Math.max(workspaceRecord.bottomPaneHeight, 140), 260)
       : defaultAppSettings.workspace.bottomPaneHeight;
   const bottomPaneVisible =
     typeof workspaceRecord.bottomPaneVisible === "boolean"

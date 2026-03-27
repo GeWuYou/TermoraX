@@ -15,10 +15,10 @@ interface WorkspaceShellProps {
   controller: WorkspaceController;
 }
 
-const MIN_LEFT_PANE_WIDTH = 200;
+const MIN_LEFT_PANE_WIDTH = 220;
 const MAX_LEFT_PANE_WIDTH = 320;
-const MIN_BOTTOM_PANE_HEIGHT = 160;
-const MAX_BOTTOM_PANE_HEIGHT = 320;
+const MIN_BOTTOM_PANE_HEIGHT = 140;
+const MAX_BOTTOM_PANE_HEIGHT = 260;
 
 function clampLeftPaneWidth(value: number): number {
   return Math.min(Math.max(value, MIN_LEFT_PANE_WIDTH), MAX_LEFT_PANE_WIDTH);
@@ -32,6 +32,7 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
   const { state, activeSession } = controller;
   const localeState = getLocaleState();
   const themeDefinition = getThemeDefinition(state.settings.terminal.theme);
+  const runningTransfers = state.transfers.filter((task) => task.status === "running").length;
   const [leftPaneWidth, setLeftPaneWidth] = useState(state.settings.workspace.leftPaneWidth);
   const [bottomPaneHeight, setBottomPaneHeight] = useState(state.settings.workspace.bottomPaneHeight);
   const [toolbarSearch, setToolbarSearch] = useState("");
@@ -124,20 +125,33 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
 
   const toolbarStyle = themeDefinition.variables as CSSProperties;
 
+  function openConnectionEditor() {
+    setCreateRequestKey((current) => current + 1);
+  }
+
+  function handleBottomPaneTabSelect(panelId: "files" | "snippets" | "history" | "logs") {
+    if (state.settings.workspace.bottomPaneVisible && state.settings.workspace.bottomPane === panelId) {
+      void controller.toggleBottomPanel();
+      return;
+    }
+
+    void controller.selectBottomPanel(panelId);
+  }
+
   return (
     <div className="workspace-shell" style={toolbarStyle}>
       <header className="workspace-toolbar">
         <div className="button-row workspace-toolbar__left">
           <button
             className="ghost-button toolbar-button"
-            onClick={() => setCreateRequestKey((current) => current + 1)}
+            onClick={openConnectionEditor}
             type="button"
           >
             {t("toolbar.newConnection")}
           </button>
           <button
             className="ghost-button toolbar-button"
-            onClick={() => setCreateRequestKey((current) => current + 1)}
+            onClick={openConnectionEditor}
             type="button"
           >
             {t("toolbar.quickConnect")}
@@ -154,35 +168,19 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
         <div className="button-row workspace-toolbar__right">
           <button
             className="ghost-button toolbar-button"
-            disabled={!activeSession}
-            onClick={() => {
-              void controller.selectBottomPanel("files");
-              void controller.uploadFileToCurrentDirectory();
-            }}
+            aria-pressed={state.settings.workspace.leftPaneVisible}
+            onClick={() => void controller.toggleLeftPane()}
             type="button"
           >
-            {t("toolbar.upload")}
+            {t("toolbar.toggleSidebar")}
           </button>
           <button
             className="ghost-button toolbar-button"
-            onClick={() => void controller.selectBottomPanel("files")}
+            aria-pressed={state.settings.workspace.bottomPaneVisible}
+            onClick={() => void controller.toggleBottomPanel()}
             type="button"
           >
-            {t("toolbar.files")}
-          </button>
-          <button
-            className="ghost-button toolbar-button"
-            onClick={() => void controller.selectBottomPanel("snippets")}
-            type="button"
-          >
-            {t("toolbar.snippets")}
-          </button>
-          <button
-            className="ghost-button toolbar-button"
-            onClick={() => void controller.selectBottomPanel("logs")}
-            type="button"
-          >
-            {t("toolbar.logs")}
+            {t("toolbar.toggleTools")}
           </button>
           <div className="workspace-toolbar__settings">
             <button
@@ -259,28 +257,46 @@ export function WorkspaceShell({ controller }: WorkspaceShellProps) {
               />
               <section className="workspace-bottom-pane" style={{ height: `${bottomPaneHeight}px` }}>
                 <div className="workspace-tools">
-                  <div className="workspace-tools__tabs" role="tablist">
-                    {(["files", "snippets", "history", "logs"] as const).map((panelId) => (
+                  <div className="workspace-tools__header">
+                    <div className="workspace-tools__tabs" role="tablist">
+                      {(["files", "snippets", "history", "logs"] as const).map((panelId) => (
+                        <button
+                          aria-selected={state.settings.workspace.bottomPane === panelId}
+                          className={`workspace-tools__tab ${
+                            state.settings.workspace.bottomPane === panelId ? "is-active" : ""
+                          }`}
+                          key={panelId}
+                          onClick={() => handleBottomPaneTabSelect(panelId)}
+                          role="tab"
+                          type="button"
+                        >
+                          <span>{t(`workspace.action.${panelId}`)}</span>
+                          {panelId === "files" && runningTransfers > 0 ? (
+                            <span className="workspace-tools__badge">{runningTransfers}</span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="button-row workspace-tools__actions">
                       <button
-                        aria-selected={state.settings.workspace.bottomPane === panelId}
-                        className={`workspace-tools__tab ${
-                          state.settings.workspace.bottomPane === panelId ? "is-active" : ""
-                        }`}
-                        key={panelId}
-                        onClick={() => void controller.selectBottomPanel(panelId)}
-                        role="tab"
+                        className="ghost-button toolbar-button"
+                        disabled={!activeSession}
+                        onClick={() => {
+                          void controller.selectBottomPanel("files");
+                          void controller.uploadFileToCurrentDirectory();
+                        }}
                         type="button"
                       >
-                        {t(`workspace.action.${panelId}`)}
+                        {t("toolbar.upload")}
                       </button>
-                    ))}
-                    <button
-                      className="ghost-button toolbar-button workspace-tools__close"
-                      onClick={() => void controller.toggleBottomPanel()}
-                      type="button"
-                    >
-                      {t("terminal.toggleBottomPanel")}
-                    </button>
+                      <button
+                        className="ghost-button toolbar-button workspace-tools__close"
+                        onClick={() => void controller.toggleBottomPanel()}
+                        type="button"
+                      >
+                        {t("terminal.toggleBottomPanel")}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="workspace-tools__content">

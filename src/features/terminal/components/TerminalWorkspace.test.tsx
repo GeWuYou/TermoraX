@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { SessionTab } from "../../../entities/domain";
+import { applySessionOutputEvents, resetSessionOutputStore } from "../../../app/sessionOutputStore";
 import { defaultAppSettings } from "../../settings/model/defaults";
 import type { WorkspaceController, WorkspaceViewState } from "../../../app/useWorkspaceApp";
 import { TerminalWorkspace } from "./TerminalWorkspace";
@@ -9,7 +10,20 @@ import { readClipboardText, writeClipboardText } from "../../../shared/lib/clipb
 
 const terminalOnDataHandlers: Array<(data: string) => void> = [];
 const terminalKeyHandlers: Array<(event: KeyboardEvent) => boolean> = [];
-const createdTerminals: Array<{ dispose: ReturnType<typeof vi.fn> }> = [];
+const createdTerminals: Array<{
+  dispose: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
+  write: ReturnType<typeof vi.fn>;
+  scrollLines: ReturnType<typeof vi.fn>;
+  scrollToTop: ReturnType<typeof vi.fn>;
+  scrollToBottom: ReturnType<typeof vi.fn>;
+  buffer: {
+    active: {
+      baseY: number;
+      viewportY: number;
+    };
+  };
+}> = [];
 const requestAnimationFrameMock = vi.fn<(callback: FrameRequestCallback) => number>((callback) => {
   callback(0);
   return 1;
@@ -52,10 +66,16 @@ vi.mock("@xterm/addon-fit", () => ({
 }));
 
 vi.mock("@xterm/xterm", () => ({
-  Terminal: class MockTerminal {
+  Terminal: class {
     dispose = vi.fn();
     cols = 120;
     rows = 40;
+    buffer = {
+      active: {
+        baseY: 0,
+        viewportY: 0,
+      },
+    };
     options = {
       theme: undefined,
       fontFamily: undefined,
@@ -63,6 +83,7 @@ vi.mock("@xterm/xterm", () => ({
       lineHeight: undefined,
       cursorStyle: undefined,
     };
+    private scrollHandlers: Array<() => void> = [];
 
     loadAddon() {}
     open() {}
@@ -76,6 +97,14 @@ vi.mock("@xterm/xterm", () => ({
         dispose() {},
       };
     }
+    onScroll(handler: () => void) {
+      this.scrollHandlers.push(handler);
+      return {
+        dispose: () => {
+          this.scrollHandlers = this.scrollHandlers.filter((item) => item !== handler);
+        },
+      };
+    }
     hasSelection() {
       return Boolean(terminalSelection);
     }
@@ -83,11 +112,31 @@ vi.mock("@xterm/xterm", () => ({
       return terminalSelection;
     }
     clear() {}
-    reset() {}
-    write() {}
-    scrollLines() {}
-    scrollToTop() {}
-    scrollToBottom() {}
+    reset = vi.fn(() => {
+      this.buffer.active.baseY = 0;
+      this.buffer.active.viewportY = 0;
+    });
+    write = vi.fn((payload: string, callback?: () => void) => {
+      const addedLines = (payload.match(/\r\n/g) ?? []).length;
+      this.buffer.active.baseY += addedLines;
+      callback?.();
+    });
+    scrollLines = vi.fn((delta: number) => {
+      this.buffer.active.viewportY = Math.max(
+        0,
+        Math.min(this.buffer.active.baseY, this.buffer.active.viewportY + delta),
+      );
+      this.scrollHandlers.forEach((handler) => handler());
+    });
+    scrollToTop = vi.fn(() => {
+      this.buffer.active.viewportY = 0;
+      this.scrollHandlers.forEach((handler) => handler());
+    });
+    scrollToBottom = vi.fn(() => {
+      this.buffer.active.viewportY = this.buffer.active.baseY;
+      this.scrollHandlers.forEach((handler) => handler());
+    });
+
     constructor() {
       createdTerminals.push(this);
     }
@@ -96,6 +145,7 @@ vi.mock("@xterm/xterm", () => ({
 
 afterEach(() => {
   vi.clearAllMocks();
+  resetSessionOutputStore();
   terminalOnDataHandlers.length = 0;
   terminalKeyHandlers.length = 0;
   createdTerminals.length = 0;
@@ -221,7 +271,7 @@ describe("TerminalWorkspace", () => {
     expect(clearSessionOutput).toHaveBeenCalledWith(sampleSession.id);
     expect(closeOtherSessions).toHaveBeenCalledWith(sampleSession.id);
     expect(screen.getByText("终端尺寸：120 × 40")).toBeInTheDocument();
-    expect(screen.getByText("/home/termorax")).toBeInTheDocument();
+    expect(screen.getByText("路径：/home/termorax")).toBeInTheDocument();
     expect(screen.getByTestId("terminal-host")).toBeInTheDocument();
   });
 
@@ -285,26 +335,15 @@ describe("TerminalWorkspace", () => {
     });
   });
 
-  test("renders theme selector and panel toggles", async () => {
-    const updateTheme = vi.fn();
-    const toggleBottomPanel = vi.fn();
-    const toggleLeftPane = vi.fn();
-    const controller = createController(sampleSession, {
-      updateTheme,
-      toggleBottomPanel,
-      toggleLeftPane,
-    });
+  test("renders compact terminal actions without a duplicated theme toolbar", () => {
+    const controller = createController(sampleSession);
 
     render(<TerminalWorkspace controller={controller} />);
-    const user = userEvent.setup();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "主题" }), "sand");
-    await user.click(screen.getByRole("button", { name: "底栏" }));
-    await user.click(screen.getByRole("button", { name: "侧栏" }));
-
-    expect(updateTheme).toHaveBeenCalledWith("sand");
-    expect(toggleBottomPanel).toHaveBeenCalledTimes(1);
-    expect(toggleLeftPane).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("combobox", { name: "主题" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "粘贴" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重连" })).toBeInTheDocument();
   });
 
   test("keeps terminal output instance alive when the theme changes", () => {
@@ -340,7 +379,7 @@ describe("TerminalWorkspace", () => {
 
     render(<TerminalWorkspace controller={controller} />);
 
-    expect(screen.getByText("/var/www/app")).toBeInTheDocument();
+    expect(screen.getByText("路径：/var/www/app")).toBeInTheDocument();
   });
 
   test("supports terminal shortcuts for clear and clipboard actions", async () => {
@@ -418,5 +457,69 @@ describe("TerminalWorkspace", () => {
     await waitFor(() => {
       expect(resizeSession).toHaveBeenCalledTimes(1);
     });
+  });
+
+  test("follows output to the bottom without forcing the viewport to the top", async () => {
+    const controller = createController(sampleSession);
+
+    render(<TerminalWorkspace controller={controller} />);
+
+    await waitFor(() => {
+      expect(createdTerminals[0]?.scrollToBottom).toHaveBeenCalled();
+    });
+    expect(createdTerminals[0]?.scrollToTop).not.toHaveBeenCalled();
+
+    act(() => {
+      applySessionOutputEvents([
+        {
+          kind: "output",
+          sessionId: sampleSession.id,
+          stream: "stdout",
+          chunk: "\r\npwd",
+          occurredAt: "2026-03-25T01:24:00.000Z",
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(createdTerminals[0]?.scrollToBottom).toHaveBeenCalledTimes(2);
+    });
+    expect(createdTerminals[0]?.scrollToTop).not.toHaveBeenCalled();
+  });
+
+  test("keeps the viewport position when the user has scrolled away from the bottom", async () => {
+    const controller = createController(sampleSession);
+
+    render(<TerminalWorkspace controller={controller} />);
+
+    await waitFor(() => {
+      expect(createdTerminals[0]?.scrollToBottom).toHaveBeenCalledTimes(1);
+    });
+
+    const terminal = createdTerminals[0];
+    if (!terminal) {
+      throw new Error("terminal was not created");
+    }
+
+    terminal.buffer.active.baseY = 10;
+    terminal.buffer.active.viewportY = 10;
+
+    act(() => {
+      terminal.scrollLines(-2);
+      applySessionOutputEvents([
+        {
+          kind: "output",
+          sessionId: sampleSession.id,
+          stream: "stdout",
+          chunk: "\r\nls -la",
+          occurredAt: "2026-03-25T01:25:00.000Z",
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
+    });
+    expect(terminal.scrollToTop).not.toHaveBeenCalled();
   });
 });

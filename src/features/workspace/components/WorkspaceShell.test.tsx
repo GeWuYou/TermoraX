@@ -138,4 +138,30 @@ describe("WorkspaceShell", () => {
 
     expect(selectBottomPanel).toHaveBeenCalledWith("snippets");
   });
+
+  it("collapses the bottom pane when the active tab is clicked again", async () => {
+    const user = userEvent.setup();
+    const toggleBottomPanel = vi.fn();
+    const selectBottomPanel = vi.fn();
+    const controller = createController({
+      toggleBottomPanel,
+      selectBottomPanel,
+      state: buildState({
+        settings: {
+          ...defaultAppSettings,
+          workspace: {
+            ...defaultAppSettings.workspace,
+            bottomPane: "snippets",
+            bottomPaneVisible: true,
+          },
+        },
+      }),
+    });
+
+    render(<WorkspaceShell controller={controller} />);
+    await user.click(screen.getByRole("tab", { name: "片段" }));
+
+    expect(toggleBottomPanel).toHaveBeenCalledTimes(1);
+    expect(selectBottomPanel).not.toHaveBeenCalled();
+  });
 });

@@ -224,43 +224,34 @@ export function ConnectionSidebar({
           <strong>{t("connections.title")}</strong>
           <span>{t("connections.subtitle", { count: state.connections.length })}</span>
         </div>
-        <div className="button-row">
-          {selectedConnection ? (
-            <button
-              className="ghost-button toolbar-button"
-              onClick={() => openEditEditor(selectedConnection)}
-              type="button"
-            >
-              {t("connections.editInline")}
-            </button>
-          ) : null}
-          <button className="ghost-button toolbar-button" onClick={openCreateEditor} type="button">
-            {t("connections.new")}
-          </button>
-        </div>
       </div>
 
-      <div className="connections-pane__search">
+      <div className="connections-pane__search-row">
         <input
           onChange={(event) => updateSearchTerm(event.currentTarget.value)}
           placeholder={t("connections.searchPlaceholder")}
           value={effectiveSearchTerm}
         />
+        <button className="ghost-button toolbar-button" onClick={openCreateEditor} type="button">
+          {t("connections.new")}
+        </button>
       </div>
 
       <div className="connections-pane__actions">
+        {selectedConnection ? (
+          <button
+            className="ghost-button toolbar-button"
+            onClick={() => openEditEditor(selectedConnection)}
+            type="button"
+          >
+            {t("connections.editInline")}
+          </button>
+        ) : null}
         <button className="ghost-button toolbar-button" onClick={() => fileInputRef.current?.click()} type="button">
           {t("connections.import")}
         </button>
         <button className="ghost-button toolbar-button" onClick={() => void handleExport()} type="button">
           {t("connections.export")}
-        </button>
-        <button
-          className="ghost-button toolbar-button"
-          onClick={() => void controller.testConnectionProfile(buildDraftProfile())}
-          type="button"
-        >
-          {t("connections.test")}
         </button>
       </div>
 
@@ -295,7 +286,8 @@ export function ConnectionSidebar({
                   onClick={() => toggleGroup(group)}
                   type="button"
                 >
-                  <span>{group}</span>
+                  <span className="connection-tree__group-title">{group}</span>
+                  <span className="connection-tree__group-count">{t("connections.groupCount", { count: entries.length })}</span>
                   <span>{isCollapsed ? "▸" : "▾"}</span>
                 </button>
 

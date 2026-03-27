@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import type { WorkspaceController } from "../../../app/useWorkspaceApp";
 import { getSessionOutputState, subscribeSessionOutput } from "../../../app/sessionOutputStore";
 import type { ThemeId } from "../../../entities/domain";
-import { getThemeDefinition, listThemeDefinitions } from "../../settings/model/themes";
+import { getThemeDefinition } from "../../settings/model/themes";
 import { StatusBadge } from "../../../shared/components/StatusBadge";
 import { t } from "../../../shared/i18n";
 import { readClipboardText, writeClipboardText } from "../../../shared/lib/clipboard";
@@ -25,9 +25,7 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
   const { state, activeSession } = controller;
   const hasOtherSessions = state.sessions.length > 1;
   const hostActionsRef = useRef<TerminalHostActions | null>(null);
-  const themeOptions = listThemeDefinitions();
   const displayPath = useMemo(() => activeSession?.currentPath ?? "/", [activeSession?.currentPath]);
-  // Only surface terminal dimensions when both axes are available.
   const sessionSize = useMemo(() => {
     const cols = activeSession?.terminalCols;
     const rows = activeSession?.terminalRows;
@@ -60,126 +58,92 @@ export function TerminalWorkspace({ controller }: TerminalWorkspaceProps) {
     <section className="terminal-workspace">
       <div className="terminal-shell">
         <div className="terminal-tabs">
-          {state.sessions.map((session) => (
-            <button
-              key={session.id}
-              className={`terminal-tab ${state.activeSessionId === session.id ? "is-active" : ""}`}
-              onClick={() => controller.selectSession(session.id)}
-              type="button"
-            >
-              <span>{session.title}</span>
-              <StatusBadge status={session.status} />
-              <span
-                className="terminal-tab__close"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void controller.closeSession(session.id);
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                ×
-              </span>
-            </button>
-          ))}
+          <div className="terminal-tabs__list">
+            {state.sessions.map((session) => (
+              <div key={session.id} className={`terminal-tab ${state.activeSessionId === session.id ? "is-active" : ""}`}>
+                <button className="terminal-tab__trigger" onClick={() => controller.selectSession(session.id)} type="button">
+                  <span className="terminal-tab__label">{session.title}</span>
+                  <StatusBadge status={session.status} />
+                </button>
+                <button
+                  aria-label={session.title}
+                  className="terminal-tab__close"
+                  onClick={() => void controller.closeSession(session.id)}
+                  type="button"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
           {state.sessions.length === 0 ? <div className="tab-strip__empty">{t("terminal.openHint")}</div> : null}
           <div className="terminal-tabs__actions">
-            <label className="theme-select">
-              <span className="sr-only">{t("terminal.themeLabel")}</span>
-              <select
-                aria-label={t("terminal.themeLabel")}
-                value={state.settings.terminal.theme}
-                onChange={(event) => void controller.updateTheme(event.target.value as ThemeId)}
-              >
-                {themeOptions.map((theme) => (
-                  <option key={theme.id} value={theme.id}>
-                    {t(theme.labelKey)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="ghost-button toolbar-button" onClick={() => void controller.toggleLeftPane()} type="button">
-              {t("terminal.toggleLeftPane")}
+            <button className="ghost-button toolbar-button" onClick={() => void hostActionsRef.current?.copySelection()} type="button">
+              {t("terminal.copy")}
             </button>
-            <button className="ghost-button toolbar-button" onClick={() => void controller.toggleBottomPanel()} type="button">
-              {t("terminal.toggleBottomPanel")}
+            <button className="ghost-button toolbar-button" onClick={() => void hostActionsRef.current?.pasteClipboard()} type="button">
+              {t("terminal.paste")}
+            </button>
+            <button
+              className="ghost-button toolbar-button"
+              disabled={!activeSession}
+              onClick={() => activeSession && void controller.reconnectSession(activeSession.id)}
+              type="button"
+            >
+              {t("terminal.reconnect")}
+            </button>
+            <button
+              className="ghost-button toolbar-button"
+              disabled={!activeSession}
+              onClick={() => activeSession && void controller.clearSessionOutput(activeSession.id)}
+              type="button"
+            >
+              {t("terminal.clearOutput")}
+            </button>
+            <button
+              className="ghost-button toolbar-button"
+              disabled={!activeSession || !hasOtherSessions}
+              onClick={() => activeSession && void controller.closeOtherSessions(activeSession.id)}
+              title={!hasOtherSessions ? t("terminal.noOtherSessions") : undefined}
+              type="button"
+            >
+              {t("terminal.closeOthers")}
             </button>
           </div>
         </div>
 
-        <div className="terminal-view">
-          {activeSession ? (
-            <>
-              <div className="terminal-meta">
-                <span>{displayPath}</span>
-                <span>{t("terminal.lastUpdate", { time: formatTimestamp(activeSession.updatedAt) })}</span>
-                {sessionSize ? (
-                  <span>{t("terminal.size", { cols: sessionSize.cols, rows: sessionSize.rows })}</span>
-                ) : null}
-              </div>
-              <div className="terminal-toolbar">
-                <button
-                  className="ghost-button toolbar-button"
-                  onClick={() => void hostActionsRef.current?.copySelection()}
-                  type="button"
-                >
-                  {t("terminal.copy")}
-                </button>
-                <button
-                  className="ghost-button toolbar-button"
-                  onClick={() => void hostActionsRef.current?.pasteClipboard()}
-                  type="button"
-                >
-                  {t("terminal.paste")}
-                </button>
-                <button
-                  className="ghost-button toolbar-button"
-                  onClick={() => void controller.reconnectSession(activeSession.id)}
-                  type="button"
-                >
-                  {t("terminal.reconnect")}
-                </button>
-                <button
-                  className="ghost-button toolbar-button"
-                  onClick={() => void controller.clearSessionOutput(activeSession.id)}
-                  type="button"
-                >
-                  {t("terminal.clearOutput")}
-                </button>
-                <button
-                  className="ghost-button toolbar-button"
-                  disabled={!hasOtherSessions}
-                  onClick={() => void controller.closeOtherSessions(activeSession.id)}
-                  title={!hasOtherSessions ? t("terminal.noOtherSessions") : undefined}
-                  type="button"
-                >
-                  {t("terminal.closeOthers")}
-                </button>
-              </div>
-              <div className="terminal-host">
-                <TerminalHost
-                  key={activeSession.id}
-                  sessionId={activeSession.id}
-                  cursorStyle={state.settings.terminal.cursorStyle}
-                  hostActionsRef={hostActionsRef}
-                  initialOutput={activeSession.lastOutput}
-                  onClearRequest={() => void controller.clearSessionOutput(activeSession.id)}
-                  onInput={handleTerminalInput}
-                  onResize={(cols, rows) => void controller.resizeSession(activeSession.id, cols, rows)}
-                  theme={state.settings.terminal.theme}
-                  fontFamily={state.settings.terminal.fontFamily}
-                  fontSize={state.settings.terminal.fontSize}
-                  lineHeight={state.settings.terminal.lineHeight}
-                />
-              </div>
-            </>
-          ) : (
+        {activeSession ? (
+          <div className="terminal-view">
+            <div className="terminal-host">
+              <TerminalHost
+                key={activeSession.id}
+                sessionId={activeSession.id}
+                cursorStyle={state.settings.terminal.cursorStyle}
+                hostActionsRef={hostActionsRef}
+                initialOutput={activeSession.lastOutput}
+                onClearRequest={() => void controller.clearSessionOutput(activeSession.id)}
+                onInput={handleTerminalInput}
+                onResize={(cols, rows) => void controller.resizeSession(activeSession.id, cols, rows)}
+                theme={state.settings.terminal.theme}
+                fontFamily={state.settings.terminal.fontFamily}
+                fontSize={state.settings.terminal.fontSize}
+                lineHeight={state.settings.terminal.lineHeight}
+              />
+            </div>
+            <div className="terminal-statusbar">
+              <span>{t("terminal.cwd", { path: displayPath })}</span>
+              {sessionSize ? <span>{t("terminal.size", { cols: sessionSize.cols, rows: sessionSize.rows })}</span> : null}
+              <span>{t("terminal.lastUpdate", { time: formatTimestamp(activeSession.updatedAt) })}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="terminal-view">
             <div className="empty-stage">
               <h3>{t("terminal.emptyTitle")}</h3>
               <p>{t("terminal.emptyBody")}</p>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -199,7 +163,10 @@ interface TerminalHostProps {
   onResize?: (cols: number, rows: number) => void;
 }
 
-const INITIAL_VIEWPORT_LOCK_MS = 1200;
+function isViewportPinnedToBottom(terminal: Terminal): boolean {
+  const buffer = terminal.buffer.active;
+  return buffer.baseY - buffer.viewportY <= 1;
+}
 
 export function TerminalHost({
   sessionId,
@@ -218,10 +185,8 @@ export function TerminalHost({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalTheme = getThemeDefinition(theme).terminal;
-  const lastOutputRef = useRef<string>("");
   const lastResizeRef = useRef<string>("");
-  const shouldScrollToTopRef = useRef(true);
-  const initialViewportLockTimerRef = useRef<number | null>(null);
+  const followOutputRef = useRef(true);
   const fitFrameRef = useRef<number | null>(null);
   const outputVersionRef = useRef(-1);
   const inputHandlerRef = useRef(onInput);
@@ -265,13 +230,9 @@ export function TerminalHost({
   }, [hostActionsRef]);
 
   useEffect(() => {
-    lastOutputRef.current = "";
     lastResizeRef.current = "";
     outputVersionRef.current = -1;
-    shouldScrollToTopRef.current = true;
-    if (initialViewportLockTimerRef.current != null && typeof window !== "undefined") {
-      window.clearTimeout(initialViewportLockTimerRef.current);
-    }
+    followOutputRef.current = true;
     if (fitFrameRef.current != null && typeof window !== "undefined") {
       window.cancelAnimationFrame(fitFrameRef.current);
       fitFrameRef.current = null;
@@ -304,6 +265,9 @@ export function TerminalHost({
 
     const disposable = terminal.onData((data) => {
       inputHandlerRef.current?.(data);
+    });
+    const scrollDisposable = terminal.onScroll(() => {
+      followOutputRef.current = isViewportPinnedToBottom(terminal);
     });
     terminal.attachCustomKeyEventHandler((event) => {
       const isAccel = event.ctrlKey || event.metaKey;
@@ -390,35 +354,18 @@ export function TerminalHost({
 
     scheduleFit();
 
-    const handleWheel = (event: WheelEvent) => {
-      if (event.deltaY === 0) {
-        return;
-      }
-
-      shouldScrollToTopRef.current = false;
-      const lineDelta = Math.trunc(event.deltaY / 40) || (event.deltaY > 0 ? 1 : -1);
-      terminal.scrollLines(lineDelta);
-      event.preventDefault();
-    };
-
-    container.addEventListener("wheel", handleWheel, { passive: false });
-
     return () => {
       if (!disconnectResizeObserver && typeof window !== "undefined") {
         window.removeEventListener("resize", handleResize);
       }
       disconnectResizeObserver?.();
-      container.removeEventListener("wheel", handleWheel);
       if (fitFrameRef.current != null && typeof window !== "undefined") {
         window.cancelAnimationFrame(fitFrameRef.current);
         fitFrameRef.current = null;
       }
       scheduleFitRef.current = null;
-      if (initialViewportLockTimerRef.current != null && typeof window !== "undefined") {
-        window.clearTimeout(initialViewportLockTimerRef.current);
-        initialViewportLockTimerRef.current = null;
-      }
       disposable.dispose();
+      scrollDisposable.dispose();
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
@@ -464,26 +411,18 @@ export function TerminalHost({
         return;
       }
 
-      const keepViewportAtTop = shouldScrollToTopRef.current || nextState.didReset;
+      const shouldFollowOutput = followOutputRef.current || nextState.didReset;
       const writePayload = nextState.didReset ? nextState.text : nextState.delta;
       const normalizedPayload = writePayload.replace(/\r?\n/g, "\r\n");
       const afterWrite = () => {
-        if (keepViewportAtTop) {
-          currentTerminal.scrollToTop();
-          if (typeof window !== "undefined") {
-            if (initialViewportLockTimerRef.current != null) {
-              window.clearTimeout(initialViewportLockTimerRef.current);
-            }
-            initialViewportLockTimerRef.current = window.setTimeout(() => {
-              shouldScrollToTopRef.current = false;
-              initialViewportLockTimerRef.current = null;
-            }, INITIAL_VIEWPORT_LOCK_MS);
-          }
+        if (shouldFollowOutput) {
+          currentTerminal.scrollToBottom();
+          followOutputRef.current = true;
         }
       };
 
       if (nextState.didReset) {
-        shouldScrollToTopRef.current = true;
+        followOutputRef.current = true;
         currentTerminal.reset();
       }
 
@@ -494,7 +433,6 @@ export function TerminalHost({
       }
 
       outputVersionRef.current = nextState.version;
-      lastOutputRef.current = nextState.text;
     };
 
     applyOutputState();
