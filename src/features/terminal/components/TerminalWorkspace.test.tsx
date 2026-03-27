@@ -10,6 +10,7 @@ import { readClipboardText, writeClipboardText } from "../../../shared/lib/clipb
 
 const terminalOnDataHandlers: Array<(data: string) => void> = [];
 const terminalKeyHandlers: Array<(event: KeyboardEvent) => boolean> = [];
+const createdFitAddons: Array<ReturnType<typeof vi.fn>> = [];
 const createdTerminals: Array<{
   dispose: ReturnType<typeof vi.fn>;
   reset: ReturnType<typeof vi.fn>;
@@ -61,7 +62,11 @@ vi.mock("../../../shared/lib/clipboard", () => ({
 
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class MockFitAddon {
-    fit() {}
+    fit = vi.fn();
+
+    constructor() {
+      createdFitAddons.push(this.fit);
+    }
   },
 }));
 
@@ -148,6 +153,7 @@ afterEach(() => {
   resetSessionOutputStore();
   terminalOnDataHandlers.length = 0;
   terminalKeyHandlers.length = 0;
+  createdFitAddons.length = 0;
   createdTerminals.length = 0;
   terminalSelection = "selected-output";
   (readClipboardText as ReturnType<typeof vi.fn>).mockResolvedValue("pasted-command");
@@ -478,6 +484,7 @@ describe("TerminalWorkspace", () => {
     const { rerender } = render(<TerminalWorkspace controller={controller} />);
 
     await waitFor(() => {
+      expect(createdFitAddons[0]).toHaveBeenCalledTimes(1);
       expect(resizeSession).toHaveBeenCalledTimes(1);
       expect(resizeSession).toHaveBeenCalledWith(sampleSession.id, 120, 40);
     });
@@ -495,6 +502,7 @@ describe("TerminalWorkspace", () => {
     rerender(<TerminalWorkspace controller={nextController} />);
 
     await waitFor(() => {
+      expect(createdFitAddons[0]).toHaveBeenCalledTimes(1);
       expect(resizeSession).toHaveBeenCalledTimes(1);
     });
   });

@@ -324,6 +324,7 @@ export function TerminalHost({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalTheme = getThemeDefinition(theme).terminal;
   const lastResizeRef = useRef("");
+  const lastViewportSizeRef = useRef("");
   const followOutputRef = useRef(true);
   const fitFrameRef = useRef<number | null>(null);
   const outputVersionRef = useRef(-1);
@@ -369,6 +370,7 @@ export function TerminalHost({
 
   useEffect(() => {
     lastResizeRef.current = "";
+    lastViewportSizeRef.current = "";
     outputVersionRef.current = -1;
     followOutputRef.current = true;
     if (fitFrameRef.current != null && typeof window !== "undefined") {
@@ -442,7 +444,13 @@ export function TerminalHost({
         return;
       }
 
+      const viewportSizeKey = `${currentContainer.clientWidth}x${currentContainer.clientHeight}`;
+      if (viewportSizeKey === lastViewportSizeRef.current && lastResizeRef.current) {
+        return;
+      }
+
       currentFitAddon.fit();
+      lastViewportSizeRef.current = viewportSizeKey;
       const sizeKey = `${currentTerminal.cols}x${currentTerminal.rows}`;
 
       if (currentTerminal.cols > 0 && currentTerminal.rows > 0 && sizeKey !== lastResizeRef.current) {
@@ -531,6 +539,7 @@ export function TerminalHost({
     terminal.options.fontSize = fontSize;
     terminal.options.lineHeight = lineHeight;
     terminal.options.cursorStyle = cursorStyle === "line" ? "bar" : "block";
+    lastViewportSizeRef.current = "";
     scheduleFitRef.current?.();
   }, [cursorStyle, fontFamily, fontSize, lineHeight]);
 

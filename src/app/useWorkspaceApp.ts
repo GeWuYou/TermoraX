@@ -406,11 +406,14 @@ export function useWorkspaceApp() {
   const sessionEventFlushTimerRef = useRef<number | null>(null);
   const lastLoadedRemotePathRef = useRef<string | null>(null);
   const lastLoadedRootSessionRef = useRef<string | null>(null);
+  const filesPanelSessionIdRef = useRef<string | null>(null);
+  const filesPanelPathRef = useRef<string | null>(null);
+  const filesPanelVisibleRef = useRef(false);
+  const activeSessionStatusRef = useRef<string | null>(null);
   const commandDraftsRef = useRef<Record<string, string>>({});
   const sessionResizeSchedulerRef = useRef<SessionResizeScheduler | null>(null);
   const activeSessionRecord = state.sessions.find((item) => item.id === state.activeSessionId) ?? null;
   const activeSessionCurrentPath = activeSessionRecord?.currentPath ?? null;
-  const activeSessionUpdatedAt = activeSessionRecord?.updatedAt ?? null;
 
   if (!sessionResizeSchedulerRef.current) {
     sessionResizeSchedulerRef.current = createSessionResizeScheduler({
@@ -428,6 +431,13 @@ export function useWorkspaceApp() {
   const activeSessionStatus = activeSessionRecord?.status ?? null;
   const filesPanelVisible =
     state.settings.workspace.bottomPaneVisible && state.settings.workspace.bottomPane === "files";
+
+  useEffect(() => {
+    filesPanelSessionIdRef.current = state.activeSessionId;
+    filesPanelPathRef.current = activeSessionCurrentPath;
+    filesPanelVisibleRef.current = filesPanelVisible;
+    activeSessionStatusRef.current = activeSessionStatus;
+  }, [activeSessionCurrentPath, activeSessionStatus, filesPanelVisible, state.activeSessionId]);
 
   const refreshRemoteEntries = useCallback(async (sessionId: string) => {
     const requestId = remoteEntriesRequestRef.current + 1;
@@ -635,7 +645,6 @@ export function useWorkspaceApp() {
     state.activeSessionId,
     activeSessionCurrentPath,
     activeSessionStatus,
-    activeSessionUpdatedAt,
     filesPanelVisible,
     refreshRemoteEntries,
     refreshRemoteRootEntries,
@@ -751,9 +760,11 @@ export function useWorkspaceApp() {
 
       const shouldRefreshRemoteEntries =
         task.direction === "upload" &&
-        (task.status === "succeeded" || task.status === "failed" || task.status === "canceled") &&
-        state.activeSessionId === task.sessionId &&
-        activeSessionCurrentPath === parentRemotePath(task.remotePath);
+        task.status === "succeeded" &&
+        filesPanelVisibleRef.current &&
+        activeSessionStatusRef.current === "connected" &&
+        filesPanelSessionIdRef.current === task.sessionId &&
+        filesPanelPathRef.current === parentRemotePath(task.remotePath);
 
       if (shouldRefreshRemoteEntries) {
         void refreshRemoteEntries(task.sessionId);
@@ -780,7 +791,7 @@ export function useWorkspaceApp() {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [activeSessionCurrentPath, refreshRemoteEntries, state.activeSessionId]);
+  }, [refreshRemoteEntries]);
 
   const selectedConnection = useMemo(
     () => state.connections.find((item) => item.id === state.selectedConnectionId) ?? null,
